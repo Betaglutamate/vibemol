@@ -18,7 +18,7 @@ from typing import Any
 import numpy as np
 
 from ..model.structure import Structure
-from ..protocol.geometry import mesh_group
+from ..protocol.geometry import cylinders_group, mesh_group
 
 _SAMPLES_PER_SEGMENT = 8
 _CROSS_SECTION_POINTS = 8
@@ -33,6 +33,12 @@ _NUCLEIC_SHAPE = (0.75, 0.75)  # DNA/RNA backbone: a fat rounded tube
 # Trace-atom preference for nucleic-acid residues. Sugar atoms (C3'/C4') give a
 # smoother backbone than the phosphates and exist on 5'-terminal residues too.
 _NUCLEIC_TRACE = ("C3'", "C4'", "P", "C1'", "O5'")
+
+# Sugar-phosphate backbone atom names; everything else in a nucleotide is the base.
+_SUGAR_PHOSPHATE = {
+    "P", "OP1", "OP2", "OP3", "O1P", "O2P", "O3P",
+    "O5'", "C5'", "C4'", "O4'", "C3'", "O3'", "C2'", "C1'", "O2'",
+}
 
 
 def _residue_trace_atoms(structure: Structure) -> list[tuple[tuple[str, int], int, bool]]:
@@ -295,6 +301,42 @@ def build_cartoon_mesh(
         np.concatenate(all_col),
         np.concatenate(all_idx),
     )
+
+
+def build_nucleic_rungs(
+    structure: Structure, mask: np.ndarray, colors: np.ndarray
+) -> dict[str, Any] | None:
+    """Short cylinders from each nucleotide's sugar (C1') to its base centroid.
+
+    These "rungs" give the nucleic cartoon a recognizable ladder look, clearly
+    distinct from a protein ribbon. Returns a cylinders draw group, or None."""
+    by_res: dict[tuple[str, int], dict[str, int]] = {}
+    for i in range(structure.n_atoms):
+        if not mask[i]:
+            continue
+        key = (structure.chain_ids[i], int(structure.res_ids[i]))
+        by_res.setdefault(key, {}).setdefault(structure.atom_names[i].upper(), i)
+
+    starts: list[np.ndarray] = []
+    ends: list[np.ndarray] = []
+    cols: list[np.ndarray] = []
+    for names in by_res.values():
+        if "C1'" not in names:
+            continue  # not a nucleotide
+        base = [
+            idx for nm, idx in names.items()
+            if nm not in _SUGAR_PHOSPHATE and structure.elements[idx] != "H"
+        ]
+        if not base:
+            continue
+        anchor = names["C1'"]
+        starts.append(structure.coords[anchor])
+        ends.append(structure.coords[base].mean(axis=0))
+        cols.append(colors[anchor])
+    if not starts:
+        return None
+    radii = np.full(len(starts), 0.30, dtype=np.float32)
+    return cylinders_group(np.array(starts), np.array(ends), radii, np.array(cols))
 
 
 def has_protein_backbone(structure: Structure) -> bool:

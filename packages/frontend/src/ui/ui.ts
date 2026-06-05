@@ -67,6 +67,8 @@ export class UI {
 
   private target: string | null = null;
   private lastScene: DecodedScene | null = null;
+  // Anchor residue for shift-range selection (set by the last plain/add click).
+  private selAnchor: { chain: string; resi: number } | null = null;
   private history: string[] = [];
   private historyIdx = 0;
 
@@ -257,21 +259,44 @@ export class UI {
     this.toast(`${kind[0].toUpperCase() + kind.slice(1)}: click ${MEASURE_COUNT[kind]} atoms (Esc to cancel)`, true);
   }
 
-  /** Called by the app on an atom pick; returns true if consumed by measure mode. */
-  handlePick(_objectName: string, atomIndex: number): boolean {
-    if (!this.measureMode) return false;
-    this.measurePicks.push(atomIndex + 1); // commands use 1-based index
-    const need = MEASURE_COUNT[this.measureMode];
-    if (this.measurePicks.length >= need) {
-      const sels = this.measurePicks.map((i) => `index ${i}`).join(", ");
-      this.handlers.onCommand(`${this.measureMode} ${sels}`);
-      this.measureMode = null;
-      this.measurePicks = [];
-      this.hideToast();
-    } else {
-      this.toast(`Click ${need - this.measurePicks.length} more atom(s)`, true);
+  /** Called by the app on an atom pick. Measure mode collects atoms; otherwise the
+   *  whole residue is selected (modifier keys extend/add — see selectResidue). */
+  handlePick(objectName: string, atomIndex: number, mods: { range: boolean; add: boolean }): void {
+    if (this.measureMode) {
+      this.measurePicks.push(atomIndex + 1); // commands use 1-based index
+      const need = MEASURE_COUNT[this.measureMode];
+      if (this.measurePicks.length >= need) {
+        const sels = this.measurePicks.map((i) => `index ${i}`).join(", ");
+        this.handlers.onCommand(`${this.measureMode} ${sels}`);
+        this.measureMode = null;
+        this.measurePicks = [];
+        this.hideToast();
+      } else {
+        this.toast(`Click ${need - this.measurePicks.length} more atom(s)`, true);
+      }
+      return;
     }
-    return true;
+    const obj = this.lastScene?.objects.find((o) => o.name === objectName);
+    if (!obj) return;
+    this.selectResidue(obj.atoms.chains[atomIndex], obj.atoms.resis[atomIndex], mods);
+  }
+
+  /** Select a residue, honoring modifier keys:
+   *  plain → replace `sele`; Shift → range from the anchor; Cmd/Ctrl → add. */
+  private selectResidue(chain: string, resi: number, mods: { range: boolean; add: boolean }): void {
+    const hasSele = !!this.lastScene?.selections.includes("sele");
+    if (mods.range && this.selAnchor && this.selAnchor.chain === chain) {
+      const lo = Math.min(this.selAnchor.resi, resi);
+      const hi = Math.max(this.selAnchor.resi, resi);
+      this.handlers.onCommand(`select sele, chain ${chain} and resi ${lo}-${hi}`);
+      return; // keep the anchor so the range can be re-dragged
+    }
+    if (mods.add && hasSele) {
+      this.handlers.onCommand(`select sele, sele or (chain ${chain} and resi ${resi})`);
+    } else {
+      this.handlers.onCommand(`select sele, chain ${chain} and resi ${resi}`);
+    }
+    this.selAnchor = { chain, resi };
   }
 
   private cancelMeasure(): void {
@@ -474,8 +499,9 @@ export class UI {
         const letters = residues.map((r) =>
           el("span", {
             className: "vm-res", textContent: r.code,
-            title: `${obj.name} ${r.resn}${r.resi} (chain ${chain})`,
-            onclick: () => this.handlers.onCommand(`select sele, chain ${chain} and resi ${r.resi}`),
+            title: `${obj.name} ${r.resn}${r.resi} (chain ${chain})  ·  shift=range, ⌘=add`,
+            onclick: (e: MouseEvent) =>
+              this.selectResidue(chain, r.resi, { range: e.shiftKey, add: e.metaKey || e.ctrlKey }),
           }),
         );
         rows.push(el("div", { className: "vm-seq-row" }, [

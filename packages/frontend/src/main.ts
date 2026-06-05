@@ -37,18 +37,9 @@ const ui = new UI({
   },
 });
 
-// Click-to-pick: route to measure mode first; otherwise identify + select the atom.
-viewer.onPick = (objectName, atomIndex) => {
-  if (ui.handlePick(objectName, atomIndex)) return;
-  const scene = appStore.getState().scene;
-  const obj = scene?.objects.find((o) => o.name === objectName);
-  if (obj) {
-    const a = obj.atoms;
-    const id = `/${objectName}/${a.chains[atomIndex]}/${a.resns[atomIndex]}\`${a.resis[atomIndex]}/${a.names[atomIndex]}`;
-    appStore.getState().appendLog({ level: "info", message: `picked ${id}` });
-  }
-  client.runCommand(`select sele, index ${atomIndex + 1}`);
-};
+// Click-to-pick: measure mode collects atoms; otherwise selects the whole residue
+// (Shift = range in sequence, Cmd/Ctrl = add). Handled entirely in the UI.
+viewer.onPick = (objectName, atomIndex, mods) => ui.handlePick(objectName, atomIndex, mods);
 
 // Drive the UI from store changes; the viewer is updated directly by the client.
 let lastScene = appStore.getState().scene;

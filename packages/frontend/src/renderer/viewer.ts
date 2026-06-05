@@ -70,8 +70,10 @@ export class Viewer {
   private composer: EffectComposer | null = null;
   private quality = false;
 
-  /** Set by the app to receive click-to-pick events (objectName, atomIndex). */
-  onPick: ((objectName: string, atomIndex: number) => void) | null = null;
+  /** Set by the app to receive click-to-pick events (with modifier keys). */
+  onPick:
+    | ((objectName: string, atomIndex: number, mods: { range: boolean; add: boolean }) => void)
+    | null = null;
 
   constructor(private readonly container: HTMLElement) {
     this.scene.background = new Color(0x0b0d10);
@@ -363,7 +365,8 @@ export class Viewer {
     this.raycaster.setFromCamera(pointer, this.camera);
     const hits = this.raycaster.intersectObjects(this.pickMeshes, false);
     if (hits.length && hits[0].instanceId != null) {
-      this.onPick(hits[0].object.userData.objectName as string, hits[0].instanceId);
+      const mods = { range: e.shiftKey, add: e.metaKey || e.ctrlKey };
+      this.onPick(hits[0].object.userData.objectName as string, hits[0].instanceId, mods);
     }
   };
 

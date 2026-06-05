@@ -20,7 +20,7 @@ import numpy as np
 from ..model.scene import MolObject
 from ..model.structure import Structure
 from ..protocol.geometry import cylinders_group, lines_group, points_group, spheres_group
-from .cartoon import build_cartoon_mesh
+from .cartoon import build_cartoon_mesh, build_nucleic_rungs
 
 _STICK_RADIUS = 0.20
 _BALL_STICK_BOND_RADIUS = 0.13
@@ -116,6 +116,9 @@ def build_groups(obj: MolObject) -> list[dict[str, Any]]:
             cartoon = build_cartoon_mesh(s, mask, colors)
             if cartoon is not None:
                 groups.append(cartoon)
+            rungs = build_nucleic_rungs(s, mask, colors)  # base ladder for nucleic acids
+            if rungs is not None:
+                groups.append(rungs)
 
         elif kind == "surface":
             from .surface import build_surface_mesh  # noqa: PLC0415

@@ -6,6 +6,7 @@ import importlib.util
 
 import numpy as np
 import pytest
+from test_cartoon import helix_structure
 
 from vibemol.geometry.cartoon import build_cartoon_mesh, has_cartoon_backbone
 from vibemol.model.structure import Structure
@@ -63,6 +64,31 @@ def test_bad_smiles_raises() -> None:
 
     with pytest.raises(ValueError):
         load_text("this is not smiles!!!", "smiles")
+
+
+def test_nucleic_rungs() -> None:
+    from vibemol.geometry.cartoon import build_nucleic_rungs
+
+    # One nucleotide: a sugar C1' plus two base atoms -> one rung cylinder.
+    s = Structure(
+        name="nt",
+        coords=np.array([[0, 0, 0], [1.5, 0, 0], [2.5, 0.5, 0]], dtype=np.float32),
+        elements=["C", "N", "C"],
+        atom_names=["C1'", "N1", "C2"],
+        res_names=["DA", "DA", "DA"],
+        res_ids=np.array([1, 1, 1], dtype=np.int32),
+        chain_ids=["B", "B", "B"],
+        b_factors=np.zeros(3, dtype=np.float32),
+        occupancies=np.ones(3, dtype=np.float32),
+        is_hetatm=np.zeros(3, dtype=bool),
+    )
+    rungs = build_nucleic_rungs(s, np.ones(3, dtype=bool), s.cpk_colors_rgb())
+    assert rungs is not None
+    assert rungs["primitive"] == "cylinders" and rungs["count"] == 1
+    # A protein-only residue produces no rungs.
+    assert build_nucleic_rungs(
+        helix_structure(4), np.ones(4, dtype=bool), helix_structure(4).cpk_colors_rgb()
+    ) is None
 
 
 def test_nucleic_sequence_codes() -> None:
