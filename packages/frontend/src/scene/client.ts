@@ -45,6 +45,8 @@ export class SceneClient {
         this.viewer.frameTo(msg.center, msg.radius);
       } else if (msg.type === "log") {
         appendLog({ level: msg.level, message: msg.message });
+      } else if (msg.type === "download") {
+        triggerDownload(msg.filename, msg.mime, msg.data);
       }
     };
 
@@ -70,4 +72,29 @@ export class SceneClient {
   loadFile(name: string, format: string, text: string): void {
     this.send({ type: "load_data", name, format, text });
   }
+
+  saveSession(): void {
+    this.send({ type: "save_session" });
+  }
+
+  openSession(data: Uint8Array): void {
+    this.send({ type: "load_session", data });
+  }
+
+  exportStructure(object?: string): void {
+    this.send({ type: "export_structure", object });
+  }
+}
+
+/** Turn a server `download` message into a browser file download. */
+function triggerDownload(filename: string, mime: string, data: Uint8Array | string): void {
+  // Copy bytes into a fresh ArrayBuffer so the Blob part is well-typed.
+  const part: BlobPart = typeof data === "string" ? data : new Uint8Array(data).slice().buffer;
+  const blob = new Blob([part], { type: mime });
+  const url = URL.createObjectURL(blob);
+  const link = document.createElement("a");
+  link.href = url;
+  link.download = filename;
+  link.click();
+  URL.revokeObjectURL(url);
 }

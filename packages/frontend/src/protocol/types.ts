@@ -20,7 +20,27 @@ export interface CommandMessage {
   text: string;
 }
 
-export type ClientMessage = LoadCommand | LoadDataCommand | CommandMessage;
+export interface SaveSessionMessage {
+  type: "save_session";
+}
+
+export interface LoadSessionMessage {
+  type: "load_session";
+  data: Uint8Array;
+}
+
+export interface ExportStructureMessage {
+  type: "export_structure";
+  object?: string;
+}
+
+export type ClientMessage =
+  | LoadCommand
+  | LoadDataCommand
+  | CommandMessage
+  | SaveSessionMessage
+  | LoadSessionMessage
+  | ExportStructureMessage;
 
 // --- server -> client (raw, bulk fields are Uint8Array) ---
 
@@ -99,7 +119,14 @@ export interface LogMessage {
   message: string;
 }
 
-export type ServerMessage = SceneMessage | CameraMessage | LogMessage;
+export interface DownloadMessage {
+  type: "download";
+  filename: string;
+  mime: string;
+  data: Uint8Array | string; // bytes (.vibe) or text (.pdb)
+}
+
+export type ServerMessage = SceneMessage | CameraMessage | LogMessage | DownloadMessage;
 
 // --- decoded (GPU-ready typed arrays) ---
 

@@ -18,6 +18,7 @@ import {
   DoubleSide,
   LineDashedMaterial,
   MeshBasicMaterial,
+  OrthographicCamera,
   PerspectiveCamera,
   Points,
   PointsMaterial,
@@ -51,7 +52,11 @@ const Y_AXIS = new Vector3(0, 1, 0);
 // meshes in a later performance pass; the public surface stays the same.
 export class Viewer {
   private readonly scene = new Scene();
-  private readonly camera: PerspectiveCamera;
+  private camera: PerspectiveCamera | OrthographicCamera; // the active camera
+  private readonly perspCamera: PerspectiveCamera;
+  private readonly orthoCamera: OrthographicCamera;
+  private orthographic = false;
+  private viewHalfHeight = 10; // ortho frustum half-height (world units)
   private readonly renderer: WebGLRenderer;
   private readonly controls: OrbitControls;
   private readonly root = new Group();
@@ -73,8 +78,11 @@ export class Viewer {
     this.scene.add(this.root);
 
     const { clientWidth: w, clientHeight: h } = container;
-    this.camera = new PerspectiveCamera(45, w / h, 0.1, 5000);
-    this.camera.position.set(0, 0, 40);
+    this.perspCamera = new PerspectiveCamera(45, w / h, 0.1, 5000);
+    this.perspCamera.position.set(0, 0, 40);
+    this.orthoCamera = new OrthographicCamera(-1, 1, 1, -1, 0.1, 5000);
+    this.orthoCamera.position.set(0, 0, 40);
+    this.camera = this.perspCamera;
 
     // preserveDrawingBuffer lets us snapshot the canvas to a PNG on demand.
     this.renderer = new WebGLRenderer({ antialias: true, preserveDrawingBuffer: true });
@@ -157,14 +165,48 @@ export class Viewer {
   frameTo(center: [number, number, number], radius: number): void {
     const target = new Vector3(...center);
     this.controls.target.copy(target);
-    const dist = (radius + 3) / Math.tan((this.camera.fov * Math.PI) / 360);
+    const dist = (radius + 3) / Math.tan((this.perspCamera.fov * Math.PI) / 360);
     const dir = new Vector3().subVectors(this.camera.position, target).normalize();
     if (dir.lengthSq() < 1e-6) dir.set(0, 0, 1);
     this.camera.position.copy(target).addScaledVector(dir, dist * 1.3);
     this.camera.near = Math.max(0.1, dist * 0.01);
     this.camera.far = dist * 100;
+    this.viewHalfHeight = radius + 3;
+    if (this.camera === this.orthoCamera) this.updateOrthoFrustum();
     this.camera.updateProjectionMatrix();
     this.controls.update();
+  }
+
+  /** Switch between perspective and orthographic projection, preserving the view. */
+  setProjection(orthographic: boolean): void {
+    if (orthographic === this.orthographic) return;
+    this.orthographic = orthographic;
+    const to = orthographic ? this.orthoCamera : this.perspCamera;
+    to.position.copy(this.camera.position);
+    to.quaternion.copy(this.camera.quaternion);
+    this.camera = to;
+    this.controls.object = to;
+    if (this.composer) {
+      this.composer = null; // rebuilt against the new camera on next quality use
+      if (this.quality) this.buildComposer();
+    }
+    this.frameTo(this.lastCenter, this.lastRadius);
+  }
+
+  /** Toggle continuous auto-rotation (OrbitControls handles it each frame). */
+  setSpin(on: boolean): void {
+    this.controls.autoRotate = on;
+    this.controls.autoRotateSpeed = 2.0;
+  }
+
+  private updateOrthoFrustum(): void {
+    const aspect = this.container.clientWidth / this.container.clientHeight;
+    const h = this.viewHalfHeight;
+    this.orthoCamera.left = -h * aspect;
+    this.orthoCamera.right = h * aspect;
+    this.orthoCamera.top = h;
+    this.orthoCamera.bottom = -h;
+    this.orthoCamera.updateProjectionMatrix();
   }
 
   private buildGroup(group: DecodedGroup): Object3D {
@@ -382,8 +424,9 @@ export class Viewer {
 
   private onResize = (): void => {
     const { clientWidth: w, clientHeight: h } = this.container;
-    this.camera.aspect = w / h;
-    this.camera.updateProjectionMatrix();
+    this.perspCamera.aspect = w / h;
+    this.perspCamera.updateProjectionMatrix();
+    this.updateOrthoFrustum();
     this.renderer.setSize(w, h);
     this.composer?.setSize(w, h);
   };

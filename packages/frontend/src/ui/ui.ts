@@ -1,180 +1,294 @@
 import type { ConnectionStatus, LogLine } from "../scene/store";
 import type { DecodedScene } from "../protocol/types";
+import { el } from "./dom";
+import { openDialog, pickFile } from "./dialog";
+import { Menubar, type MenuDef, type MenuItem } from "./menubar";
 
 export interface UIHandlers {
   onCommand: (text: string) => void;
-  onFile: (file: File) => void;
+  onFile: (file: File) => void; // load a structure file
   onDemo: () => void;
   onResetView: () => void;
   onSnapshot: () => void;
   onQuality: (on: boolean) => void;
+  onSpin: (on: boolean) => void;
+  onProjection: (orthographic: boolean) => void;
   onState: (n: number) => void; // 1-based trajectory frame
+  onSaveSession: () => void;
+  onOpenSession: (file: File) => void;
+  onExportStructure: () => void;
 }
 
-// Representation chips: [command kind, label].
 const REPS: [string, string][] = [
   ["cartoon", "Cartoon"], ["surface", "Surface"], ["sticks", "Sticks"],
-  ["ball_and_stick", "Ball+Stick"], ["spheres", "Spheres"], ["lines", "Lines"],
+  ["ball_and_stick", "Ball + Stick"], ["spheres", "Spheres"], ["lines", "Lines"],
   ["nonbonded", "Nonbonded"], ["dots", "Dots"],
 ];
-// Solid-color swatches: [color name the backend knows, display hex].
+const QUICK_REPS: [string, string][] = [
+  ["cartoon", "Cartoon"], ["sticks", "Sticks"], ["surface", "Surface"], ["spheres", "Spheres"],
+];
 const SWATCHES: [string, string][] = [
   ["red", "#ff4d4d"], ["orange", "#ff8a33"], ["yellow", "#ffd633"], ["green", "#4ddd5a"],
   ["cyan", "#4ddddd"], ["blue", "#6a8cff"], ["magenta", "#ff66dd"], ["white", "#ffffff"],
 ];
-const SCHEMES: [string, string][] = [
-  ["byelement", "Element"], ["bychain", "Chain"], ["spectrum", "Spectrum"],
+const COLOR_SCHEMES: [string, string][] = [
+  ["byelement", "By Element"], ["bychain", "By Chain"], ["spectrum", "Spectrum (B-factor)"],
 ];
+const MEASURE_COUNT: Record<string, number> = { distance: 2, angle: 3, dihedral: 4 };
 
-function el<K extends keyof HTMLElementTagNameMap>(
-  tag: K,
-  props: Partial<HTMLElementTagNameMap[K]> = {},
-  children: (Node | string)[] = [],
-): HTMLElementTagNameMap[K] {
-  const node = Object.assign(document.createElement(tag), props);
-  for (const c of children) node.append(c);
-  return node;
-}
+const FILE_ACCEPT = ".pdb,.ent,.cif,.mmcif,.sdf,.mol,.mol2,.xyz";
 
-function section(title: string, ...body: Node[]): HTMLElement {
-  return el("div", { className: "vm-section" }, [
-    el("div", { className: "vm-title" }, [title]),
-    ...body,
-  ]);
-}
-
-/** Builds and updates the framework-free app-shell UI. */
+/** The app-shell UI: a menu bar + slim quick-access toolbar, right data panel,
+ *  and bottom dock (console + trajectory). */
 export class UI {
   private readonly objectsEl = el("div", { className: "vm-list" });
   private readonly selectionsEl = el("div", { className: "vm-list" });
   private readonly sequenceEl = el("div", { className: "vm-seq" });
   private readonly logEl = el("div", { className: "vm-log" });
-  private readonly statusEl = el("span", { className: "vm-status" });
   private readonly statusDot = el("span", { className: "vm-dot" });
   private readonly statusText = el("span", { textContent: "connecting" });
+  private readonly hintEl = el("div", { className: "vm-hint-toast" });
   private trajEl!: HTMLDivElement;
   private trajSlider!: HTMLInputElement;
   private trajLabel!: HTMLSpanElement;
   private targetChip!: HTMLSpanElement;
+
   private nStates = 1;
   private playing = false;
   private playTimer: number | null = null;
+  // View toggles (reflected in the menu checkboxes).
+  private quality = false;
+  private spin = false;
+  private ortho = false;
+  // Pick-to-measure state.
+  private measureMode: string | null = null;
+  private measurePicks: number[] = [];
 
-  // The active selection that Representation/Color controls act on (null = all).
   private target: string | null = null;
   private lastScene: DecodedScene | null = null;
-  // Console command history (newest last); historyIdx walks it with ↑/↓.
   private history: string[] = [];
   private historyIdx = 0;
 
   constructor(private readonly handlers: UIHandlers) {
+    this.hintEl.style.display = "none";
     document.body.append(
-      this.buildHeader(),
-      this.buildLeftPanel(),
+      this.buildTopBar(),
+      this.buildQuickbar(),
       this.buildRightPanel(),
       this.buildDock(),
+      this.hintEl,
     );
     this.wireDragAndDrop();
   }
 
-  // ---- header ----
+  // ---- top bar (brand + menu bar + status) ----
 
-  private buildHeader(): HTMLElement {
-    this.statusEl.append(this.statusDot, this.statusText);
-    const viewBtn = (label: string, glyph: string, onclick: () => void) =>
-      el("button", { className: "vm-btn vm-icon-btn", onclick }, [
-        el("span", { textContent: glyph }), el("span", { textContent: label }),
-      ]);
-
-    let quality = false;
-    const qualityBtn = viewBtn("HQ", "◐", () => {
-      quality = !quality;
-      qualityBtn.classList.toggle("active", quality);
-      this.handlers.onQuality(quality);
-    });
-
-    return el("div", { className: "vm-header" }, [
+  private buildTopBar(): HTMLElement {
+    const menubar = new Menubar(this.menuDefs());
+    const status = el("span", { className: "vm-status" }, [this.statusDot, this.statusText]);
+    return el("div", { className: "vm-topbar" }, [
       el("div", { className: "vm-brand" }, [
-        el("span", { className: "vm-logo" }),
-        el("span", { textContent: "VibeMol" }),
-        el("small", { textContent: "Phase 2" }),
+        el("span", { className: "vm-logo" }), el("span", { textContent: "VibeMol" }),
       ]),
+      menubar.element,
       el("div", { className: "vm-spacer" }),
-      this.statusEl,
-      viewBtn("Reset", "⟲", this.handlers.onResetView),
-      viewBtn("PNG", "⤓", this.handlers.onSnapshot),
-      qualityBtn,
+      status,
     ]);
   }
 
-  // ---- left tools panel ----
+  private menuDefs(): MenuDef[] {
+    const repItems: MenuItem[] = REPS.map(([kind, label]) => ({
+      kind: "action", label, run: () => this.applyRep(kind),
+    }));
+    const colorItems: MenuItem[] = [
+      ...COLOR_SCHEMES.map(([s, label]): MenuItem => ({
+        kind: "action", label, run: () => this.applyColor(s),
+      })),
+      { kind: "separator" },
+      ...SWATCHES.map(([name]): MenuItem => ({
+        kind: "action", label: name[0].toUpperCase() + name.slice(1),
+        run: () => this.applyColor(name),
+      })),
+    ];
 
-  private buildLeftPanel(): HTMLElement {
-    const demoBtn = el("button", {
-      className: "vm-btn", textContent: "Demo", onclick: this.handlers.onDemo,
-    });
-    const fetchInput = el("input", { className: "vm-input", placeholder: "PDB id (e.g. 1ubq)" });
-    const doFetch = () =>
-      fetchInput.value.trim() && this.handlers.onCommand(`fetch ${fetchInput.value.trim()}`);
-    fetchInput.addEventListener("keydown", (e) => e.key === "Enter" && doFetch());
-    const fetchBtn = el("button", { className: "vm-btn", textContent: "Fetch", onclick: doFetch });
+    return [
+      {
+        label: "File",
+        items: [
+          { kind: "action", label: "Open Demo", run: this.handlers.onDemo },
+          { kind: "action", label: "Fetch from PDB…", run: () => this.fetchDialog() },
+          { kind: "action", label: "Open File…", run: () => this.openFileDialog(FILE_ACCEPT, this.handlers.onFile) },
+          { kind: "separator" },
+          { kind: "action", label: "Open Session…", run: () => this.openFileDialog(".vibe", this.handlers.onOpenSession) },
+          { kind: "action", label: "Save Session", run: this.handlers.onSaveSession },
+          { kind: "separator" },
+          { kind: "action", label: "Export Image (PNG)", run: this.handlers.onSnapshot },
+          { kind: "action", label: "Export Structure (PDB)", run: this.handlers.onExportStructure },
+        ],
+      },
+      {
+        label: "View",
+        items: [
+          { kind: "submenu", label: "Representation", items: repItems },
+          { kind: "submenu", label: "Color", items: colorItems },
+          { kind: "separator" },
+          { kind: "action", label: "Reset View", run: this.handlers.onResetView },
+          { kind: "action", label: "Zoom to Selection", run: () => this.handlers.onCommand(`zoom ${this.target ?? "all"}`) },
+          {
+            kind: "submenu", label: "Background", items: [
+              { kind: "action", label: "Dark", run: () => this.handlers.onCommand("bg_color #0b0d10") },
+              { kind: "action", label: "White", run: () => this.handlers.onCommand("bg_color white") },
+              { kind: "action", label: "Black", run: () => this.handlers.onCommand("bg_color black") },
+            ],
+          },
+          { kind: "separator" },
+          { kind: "checkbox", label: "Orthographic camera", checked: () => this.ortho, toggle: () => { this.ortho = !this.ortho; this.handlers.onProjection(this.ortho); } },
+          { kind: "checkbox", label: "High Quality (SSAO)", checked: () => this.quality, toggle: () => { this.quality = !this.quality; this.handlers.onQuality(this.quality); } },
+          { kind: "checkbox", label: "Spin", checked: () => this.spin, toggle: () => { this.spin = !this.spin; this.handlers.onSpin(this.spin); } },
+        ],
+      },
+      {
+        label: "Analysis",
+        items: [
+          { kind: "action", label: "Color by Hydrophobicity", run: () => this.applyColor("hydrophobicity") },
+          { kind: "action", label: "Color by Charge", run: () => this.applyColor("charge") },
+          { kind: "action", label: "Color by Secondary Structure", run: () => this.applyColor("ss") },
+          { kind: "separator" },
+          { kind: "action", label: "Hydrophobic Surface", run: () => this.hydrophobicSurface() },
+          { kind: "action", label: "Surface Area (SASA)", run: () => this.handlers.onCommand(`sasa ${this.target ?? "all"}`) },
+          { kind: "separator" },
+          { kind: "action", label: "Polar Contacts (H-bonds)", run: () => this.handlers.onCommand(`polar_contacts ${this.target ?? "all"}`) },
+          { kind: "action", label: "Interface Residues…", run: () => this.interfaceDialog() },
+          {
+            kind: "submenu", label: "Measure", items: [
+              { kind: "action", label: "Distance (pick 2)", run: () => this.startMeasure("distance") },
+              { kind: "action", label: "Angle (pick 3)", run: () => this.startMeasure("angle") },
+              { kind: "action", label: "Dihedral (pick 4)", run: () => this.startMeasure("dihedral") },
+            ],
+          },
+          { kind: "action", label: "Align Objects…", run: () => this.alignDialog() },
+          { kind: "separator" },
+          { kind: "action", label: "Clear Measurements", run: () => this.handlers.onCommand("delete_measurements") },
+        ],
+      },
+      {
+        label: "Help",
+        items: [
+          { kind: "action", label: "Console: ↑/↓ for history", run: () => this.toast("Type commands in the console; ↑/↓ recalls history.") },
+          { kind: "action", label: "GitHub / Docs", run: () => window.open("https://github.com/Betaglutamate/vibemol", "_blank") },
+        ],
+      },
+    ];
+  }
 
-    const structure = section(
-      "Structure",
-      el("div", { className: "vm-load-row" }, [demoBtn, fetchInput, fetchBtn]),
-      el("div", { className: "vm-hint", textContent: "or drag & drop a .pdb / .cif / .sdf / .xyz file" }),
+  // ---- quick-access toolbar ----
+
+  private buildQuickbar(): HTMLElement {
+    const reps = QUICK_REPS.map(([kind, label]) =>
+      el("button", { className: "vm-btn", textContent: label, onclick: () => this.applyRep(kind) }),
     );
-
-    // "Apply to" target chip — clicking it clears back to the whole structure.
+    const swatches = SWATCHES.map(([name, hex]) => {
+      const sw = el("div", { className: "vm-swatch", title: name, onclick: () => this.applyColor(name) });
+      sw.style.background = hex;
+      return sw;
+    });
     this.targetChip = el("span", { className: "vm-chip", textContent: "all" });
     this.targetChip.onclick = () => this.setTarget(null);
-    const applyBar = el("div", { className: "vm-apply" }, [
-      el("span", { className: "vm-apply-label", textContent: "Apply to" }), this.targetChip,
+
+    return el("div", { className: "vm-quickbar vm-card" }, [
+      el("span", { className: "vm-q-label", textContent: "Show" }), ...reps,
+      el("span", { className: "vm-sep" }),
+      el("span", { className: "vm-q-label", textContent: "Color" }), ...swatches,
+      el("span", { className: "vm-sep" }),
+      el("span", { className: "vm-q-label", textContent: "Apply to" }), this.targetChip,
     ]);
+  }
 
-    const repGrid = el(
-      "div",
-      { className: "vm-grid" },
-      REPS.map(([kind, label]) =>
-        el("button", { className: "vm-btn vm-rep", onclick: () => this.applyRep(kind) }, [
-          el("i"), el("span", { textContent: label }),
-        ]),
-      ),
-    );
-    const representation = section("Representation", applyBar, repGrid);
+  // ---- dialogs / menu actions ----
 
-    const swatches = el(
-      "div",
-      { className: "vm-swatches" },
-      SWATCHES.map(([name, hex]) => {
-        const sw = el("div", { className: "vm-swatch", title: name, onclick: () => this.applyColor(name) });
-        sw.style.background = hex;
-        return sw;
-      }),
-    );
-    const schemes = el(
-      "div",
-      { className: "vm-schemes" },
-      SCHEMES.map(([scheme, label]) =>
-        el("button", { className: "vm-btn", textContent: label, onclick: () => this.applyColor(scheme) }),
-      ),
-    );
-    const color = section("Color", swatches, schemes);
+  private async fetchDialog(): Promise<void> {
+    const v = await openDialog("Fetch from PDB", [{ name: "id", label: "PDB id", placeholder: "1ubq" }], "Fetch");
+    if (v?.id) this.handlers.onCommand(`fetch ${v.id}`);
+  }
 
-    return el("div", { className: "vm-left vm-card vm-scroll" }, [structure, representation, color]);
+  private async interfaceDialog(): Promise<void> {
+    const v = await openDialog("Interface Residues", [
+      { name: "a", label: "Selection 1", placeholder: "chain A", value: "chain A" },
+      { name: "b", label: "Selection 2", placeholder: "chain B", value: "chain B" },
+      { name: "cutoff", label: "Cutoff (Å)", value: "5" },
+    ]);
+    if (v?.a && v?.b) this.handlers.onCommand(`interface ${v.a}, ${v.b}, ${v.cutoff || "5"}`);
+  }
+
+  private async alignDialog(): Promise<void> {
+    const objs = this.lastScene?.objects.map((o) => o.name) ?? [];
+    const v = await openDialog("Align Objects", [
+      { name: "mobile", label: "Mobile object", value: objs[0] ?? "" },
+      { name: "target", label: "Target object", value: objs[1] ?? "" },
+    ], "Align");
+    if (v?.mobile && v?.target) this.handlers.onCommand(`align ${v.mobile}, ${v.target}`);
+  }
+
+  private async openFileDialog(accept: string, onFile: (f: File) => void): Promise<void> {
+    const file = await pickFile(accept);
+    if (file) onFile(file);
+  }
+
+  private hydrophobicSurface(): void {
+    this.handlers.onCommand(`color hydrophobicity${this.targetSuffix()}`);
+    this.handlers.onCommand(`as surface${this.targetSuffix()}`);
+  }
+
+  // ---- pick-to-measure ----
+
+  private startMeasure(kind: string): void {
+    this.measureMode = kind;
+    this.measurePicks = [];
+    this.toast(`${kind[0].toUpperCase() + kind.slice(1)}: click ${MEASURE_COUNT[kind]} atoms (Esc to cancel)`, true);
+  }
+
+  /** Called by the app on an atom pick; returns true if consumed by measure mode. */
+  handlePick(_objectName: string, atomIndex: number): boolean {
+    if (!this.measureMode) return false;
+    this.measurePicks.push(atomIndex + 1); // commands use 1-based index
+    const need = MEASURE_COUNT[this.measureMode];
+    if (this.measurePicks.length >= need) {
+      const sels = this.measurePicks.map((i) => `index ${i}`).join(", ");
+      this.handlers.onCommand(`${this.measureMode} ${sels}`);
+      this.measureMode = null;
+      this.measurePicks = [];
+      this.hideToast();
+    } else {
+      this.toast(`Click ${need - this.measurePicks.length} more atom(s)`, true);
+    }
+    return true;
+  }
+
+  private cancelMeasure(): void {
+    if (this.measureMode) {
+      this.measureMode = null;
+      this.measurePicks = [];
+      this.hideToast();
+    }
   }
 
   // ---- right data panel ----
 
   private buildRightPanel(): HTMLElement {
     return el("div", { className: "vm-right vm-card vm-scroll" }, [
-      section("Objects", this.objectsEl),
-      section("Selections", this.selectionsEl),
-      section("Sequence", this.sequenceEl),
+      this.section("Objects", this.objectsEl),
+      this.section("Selections", this.selectionsEl),
+      this.section("Sequence", this.sequenceEl),
     ]);
   }
 
-  // ---- bottom dock (trajectory + console) ----
+  private section(title: string, body: Node): HTMLElement {
+    return el("div", { className: "vm-section" }, [
+      el("div", { className: "vm-title", textContent: title }), body,
+    ]);
+  }
+
+  // ---- bottom dock ----
 
   private buildDock(): HTMLElement {
     this.trajLabel = el("span", { className: "vm-title", textContent: "1 / 1" });
@@ -199,19 +313,19 @@ export class UI {
       }
     };
     this.trajEl = el("div", { className: "vm-traj" }, [
-      el("span", { className: "vm-title", textContent: "State" }),
-      playBtn, this.trajSlider, this.trajLabel,
+      el("span", { className: "vm-title", textContent: "State" }), playBtn, this.trajSlider, this.trajLabel,
     ]) as HTMLDivElement;
 
     const input = el("input", {
       className: "vm-console-input",
-      placeholder: "command…  (e.g. show sticks, chain A · color spectrum · distance index 1, index 4)",
+      placeholder: "command…  (e.g. show sticks, chain A · color spectrum · select site, resn HOH)",
     });
     input.addEventListener("keydown", (e) => {
-      if (e.key === "Enter" && input.value.trim()) {
-        const cmd = input.value.trim();
-        this.handlers.onCommand(cmd);
-        if (this.history[this.history.length - 1] !== cmd) this.history.push(cmd);
+      if (e.key === "Escape") this.cancelMeasure();
+      else if (e.key === "Enter" && input.value.trim()) {
+        const c = input.value.trim();
+        this.handlers.onCommand(c);
+        if (this.history[this.history.length - 1] !== c) this.history.push(c);
         this.historyIdx = this.history.length;
         input.value = "";
       } else if (e.key === "ArrowUp") {
@@ -224,8 +338,7 @@ export class UI {
       } else if (e.key === "ArrowDown") {
         e.preventDefault();
         if (this.historyIdx < this.history.length - 1) {
-          this.historyIdx++;
-          input.value = this.history[this.historyIdx];
+          input.value = this.history[++this.historyIdx];
         } else {
           this.historyIdx = this.history.length;
           input.value = "";
@@ -235,7 +348,6 @@ export class UI {
     const consoleRow = el("div", { className: "vm-console-row" }, [
       el("span", { className: "vm-prompt", textContent: "›" }), input,
     ]);
-
     return el("div", { className: "vm-dock" }, [this.trajEl, this.logEl, consoleRow]);
   }
 
@@ -248,7 +360,6 @@ export class UI {
 
   renderScene(scene: DecodedScene): void {
     this.lastScene = scene;
-    // Clear a stale target if its selection no longer exists.
     if (this.target && !scene.selections.includes(this.target)) this.setTarget(null, false);
     this.nStates = scene.nStates;
     if (scene.nStates > 1) {
@@ -265,19 +376,12 @@ export class UI {
       ...(scene.objects.length
         ? scene.objects.map((o) =>
             el("div", { className: "vm-row" }, [
-              el("span", { className: "name" }, [
-                o.name,
-                el("span", { className: "meta", textContent: ` ${o.nAtoms} atoms` }),
-              ]),
-              el("button", {
-                className: "vm-x", textContent: "✕", title: `delete ${o.name}`,
-                onclick: () => this.handlers.onCommand(`delete ${o.name}`),
-              }),
+              el("span", { className: "name" }, [o.name, el("span", { className: "meta", textContent: ` ${o.nAtoms} atoms` })]),
+              el("button", { className: "vm-x", textContent: "✕", title: `delete ${o.name}`, onclick: () => this.handlers.onCommand(`delete ${o.name}`) }),
             ]),
           )
-        : [el("div", { className: "vm-empty", textContent: "Load a structure to begin" })]),
+        : [el("div", { className: "vm-empty", textContent: "Open a structure (File ▸ Demo / Fetch)" })]),
     );
-
     this.renderSelections(scene);
     this.renderSequence(scene);
   }
@@ -297,7 +401,7 @@ export class UI {
   }
 
   private setTarget(name: string | null, refresh = true): void {
-    this.target = this.target === name ? null : name; // clicking the active one clears it
+    this.target = this.target === name ? null : name;
     this.targetChip.textContent = this.target ?? "all";
     this.targetChip.classList.toggle("set", this.target != null);
     if (refresh && this.lastScene) this.renderSelections(this.lastScene);
@@ -314,21 +418,13 @@ export class UI {
   private selectionRow(name: string): HTMLElement {
     const active = this.target === name;
     const nameEl = el("span", {
-      className: "name",
-      textContent: name,
-      title: "click to target with Representation/Color",
+      className: "name", textContent: name, title: "click to target with Representation/Color",
       onclick: () => this.setTarget(name),
     });
-    const renameBtn = el("button", {
-      className: "vm-x", textContent: "✎", title: "rename",
-      onclick: () => this.beginRename(name, nameEl),
-    });
-    const deleteBtn = el("button", {
-      className: "vm-x", textContent: "✕", title: "delete",
-      onclick: () => this.handlers.onCommand(`deselect ${name}`),
-    });
     return el("div", { className: "vm-row vm-sel" + (active ? " active" : "") }, [
-      nameEl, renameBtn, deleteBtn,
+      nameEl,
+      el("button", { className: "vm-x", textContent: "✎", title: "rename", onclick: () => this.beginRename(name, nameEl) }),
+      el("button", { className: "vm-x", textContent: "✕", title: "delete", onclick: () => this.handlers.onCommand(`deselect ${name}`) }),
     ]);
   }
 
@@ -337,7 +433,7 @@ export class UI {
     nameEl.replaceWith(input);
     input.focus();
     input.select();
-    let done = false; // Enter, Escape, and blur can all fire — commit at most once.
+    let done = false;
     const finish = (apply: boolean) => {
       if (done) return;
       done = true;
@@ -346,7 +442,7 @@ export class UI {
         if (this.target === oldName) this.setTarget(next, false);
         this.handlers.onCommand(`set_name ${oldName}, ${next}`);
       } else if (this.lastScene) {
-        this.renderSelections(this.lastScene); // cancel -> restore the row
+        this.renderSelections(this.lastScene);
       }
     };
     input.addEventListener("keydown", (e) => {
@@ -372,31 +468,34 @@ export class UI {
             onclick: () => this.handlers.onCommand(`select sele, chain ${chain} and resi ${r.resi}`),
           }),
         );
-        rows.push(
-          el("div", { className: "vm-seq-row" }, [
-            el("span", { className: "vm-seq-label", textContent: `${obj.name}/${chain}` }),
-            ...letters,
-          ]),
-        );
+        rows.push(el("div", { className: "vm-seq-row" }, [
+          el("span", { className: "vm-seq-label", textContent: `${obj.name}/${chain}` }), ...letters,
+        ]));
       }
     }
-    this.sequenceEl.replaceChildren(
-      ...(rows.length ? rows : [el("div", { className: "vm-empty", textContent: "—" })]),
-    );
+    this.sequenceEl.replaceChildren(...(rows.length ? rows : [el("div", { className: "vm-empty", textContent: "—" })]));
   }
 
   renderLog(log: LogLine[]): void {
     this.logEl.replaceChildren(
       ...log.map((line) =>
         el("div", {
-          className:
-            "vm-log-line" +
-            (line.level === "error" ? " err" : line.message.startsWith(">") ? " cmd" : ""),
+          className: "vm-log-line" + (line.level === "error" ? " err" : line.message.startsWith(">") ? " cmd" : ""),
           textContent: line.message,
         }),
       ),
     );
     this.logEl.scrollTop = this.logEl.scrollHeight;
+  }
+
+  private toast(message: string, sticky = false): void {
+    this.hintEl.textContent = message;
+    this.hintEl.style.display = "block";
+    if (!sticky) window.setTimeout(() => this.hideToast(), 2500);
+  }
+
+  private hideToast(): void {
+    this.hintEl.style.display = "none";
   }
 
   private stopPlaying(): void {

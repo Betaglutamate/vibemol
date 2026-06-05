@@ -9,18 +9,6 @@ const viewer = new Viewer(appEl);
 const proto = location.protocol === "https:" ? "wss" : "ws";
 const client = new SceneClient(`${proto}://${location.host}/ws`, viewer);
 
-// Click-to-pick: identify the atom and add it to the `sele` selection.
-viewer.onPick = (objectName, atomIndex) => {
-  const scene = appStore.getState().scene;
-  const obj = scene?.objects.find((o) => o.name === objectName);
-  if (obj) {
-    const a = obj.atoms;
-    const id = `/${objectName}/${a.chains[atomIndex]}/${a.resns[atomIndex]}\`${a.resis[atomIndex]}/${a.names[atomIndex]}`;
-    appStore.getState().appendLog({ level: "info", message: `picked ${id}` });
-  }
-  client.runCommand(`select sele, index ${atomIndex + 1}`);
-};
-
 const ui = new UI({
   onCommand: (text) => client.runCommand(text),
   onFile: async (file) => {
@@ -34,7 +22,12 @@ const ui = new UI({
   onDemo: () => client.loadDemo(),
   onResetView: () => viewer.resetView(),
   onQuality: (on) => viewer.setQuality(on),
+  onSpin: (on) => viewer.setSpin(on),
+  onProjection: (ortho) => viewer.setProjection(ortho),
   onState: (n) => client.runCommand(`set_state ${n}`),
+  onSaveSession: () => client.saveSession(),
+  onOpenSession: async (file) => client.openSession(new Uint8Array(await file.arrayBuffer())),
+  onExportStructure: () => client.exportStructure(),
   onSnapshot: () => {
     const link = document.createElement("a");
     link.href = viewer.snapshot();
@@ -42,6 +35,19 @@ const ui = new UI({
     link.click();
   },
 });
+
+// Click-to-pick: route to measure mode first; otherwise identify + select the atom.
+viewer.onPick = (objectName, atomIndex) => {
+  if (ui.handlePick(objectName, atomIndex)) return;
+  const scene = appStore.getState().scene;
+  const obj = scene?.objects.find((o) => o.name === objectName);
+  if (obj) {
+    const a = obj.atoms;
+    const id = `/${objectName}/${a.chains[atomIndex]}/${a.resns[atomIndex]}\`${a.resis[atomIndex]}/${a.names[atomIndex]}`;
+    appStore.getState().appendLog({ level: "info", message: `picked ${id}` });
+  }
+  client.runCommand(`select sele, index ${atomIndex + 1}`);
+};
 
 // Drive the UI from store changes; the viewer is updated directly by the client.
 let lastScene = appStore.getState().scene;
