@@ -40,6 +40,7 @@ def parse_pdb_text(text: str, name: str = "structure") -> Structure:
     b_factors: list[float] = []
     occupancies: list[float] = []
     is_hetatm: list[bool] = []
+    ids: list[int] = []
     serial_to_index: dict[int, int] = {}
     conect: list[tuple[int, int]] = []
 
@@ -78,6 +79,7 @@ def parse_pdb_text(text: str, name: str = "structure") -> Structure:
             b_factors.append(bf)
             occupancies.append(occ)
             is_hetatm.append(record == "HETATM")
+            ids.append(serial)
         elif record == "CONECT":
             try:
                 a = int(line[6:11])
@@ -102,6 +104,7 @@ def parse_pdb_text(text: str, name: str = "structure") -> Structure:
         b_factors=np.array(b_factors, dtype=np.float32),
         occupancies=np.array(occupancies, dtype=np.float32),
         is_hetatm=np.array(is_hetatm, dtype=bool),
+        ids=np.array(ids, dtype=np.int32),
     )
 
     # Bonds: prefer explicit CONECT, then fill the rest by distance inference.

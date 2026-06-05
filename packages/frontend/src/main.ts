@@ -1,28 +1,44 @@
-import { SceneClient } from "./scene/client";
-import { sceneStore } from "./scene/store";
+import { SceneClient, formatFromFilename } from "./scene/client";
+import { appStore } from "./scene/store";
+import { UI } from "./ui/ui";
 import { Viewer } from "./renderer/viewer";
 
 const appEl = document.getElementById("app")!;
-const statusEl = document.getElementById("status")!;
-
 const viewer = new Viewer(appEl);
 
-// Render whatever geometry the server pushes; reflect connection state in the HUD.
-sceneStore.subscribe((state) => {
-  if (state.error) {
-    statusEl.textContent = `error: ${state.error}`;
-    return;
+const proto = location.protocol === "https:" ? "wss" : "ws";
+const client = new SceneClient(`${proto}://${location.host}/ws`, viewer);
+
+const ui = new UI({
+  onCommand: (text) => client.runCommand(text),
+  onFile: async (file) => {
+    const format = formatFromFilename(file.name);
+    if (!format) {
+      appStore.getState().appendLog({ level: "error", message: `unsupported file type: ${file.name}` });
+      return;
+    }
+    client.loadFile(file.name.replace(/\.[^.]+$/, ""), format, await file.text());
+  },
+});
+
+// Drive the UI from store changes; the viewer is updated directly by the client.
+let lastScene = appStore.getState().scene;
+let lastLog = appStore.getState().log;
+let lastStatus = appStore.getState().status;
+appStore.subscribe(() => {
+  const s = appStore.getState();
+  if (s.scene !== lastScene && s.scene) {
+    ui.renderScene(s.scene);
+    lastScene = s.scene;
   }
-  if (state.geometry) {
-    const g = state.geometry;
-    viewer.setSpheres(g);
-    statusEl.textContent = `${g.object}: ${g.nAtoms} atoms — drag to orbit, scroll to zoom`;
-  } else {
-    statusEl.textContent = state.status;
+  if (s.log !== lastLog) {
+    ui.renderLog(s.log);
+    lastLog = s.log;
+  }
+  if (s.status !== lastStatus) {
+    ui.setStatus(s.status);
+    lastStatus = s.status;
   }
 });
 
-// Connect through same-origin /ws (Vite proxies it to the backend in dev).
-const proto = location.protocol === "https:" ? "wss" : "ws";
-const client = new SceneClient(`${proto}://${location.host}/ws`);
 client.connect();

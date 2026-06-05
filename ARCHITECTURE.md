@@ -58,12 +58,15 @@ See the directory tree in the project plan. In short: a monorepo with `packages/
 
 ## Roadmap
 
-- **Phase 0 — Foundations & walking skeleton** *(in progress)*: monorepo, server + WS hub,
+- **Phase 0 — Foundations & walking skeleton** *(done)*: monorepo, server + WS hub,
   `vibemol serve`, and an end-to-end skeleton (parse a PDB → stream atoms → render spheres →
   orbit camera).
-- **Phase 1 — Core (MVP)**: I/O (PDB/mmCIF/SDF/MOL2/XYZ + RCSB fetch), structure model,
-  selection engine v1, representations (lines/sticks/ball&stick/spheres/nonbonded/dots),
-  coloring, command console, object/selection UI, `.vibe` sessions.
+- **Phase 1 — Core (MVP)** *(done)*: I/O (PDB/XYZ + RCSB fetch; mmCIF/SDF/MOL2 via the
+  `[science]` extra), scene graph, selection engine v1, representations
+  (lines/sticks/ball&stick/spheres/nonbonded/dots), coloring (element/chain/spectrum), the
+  command system + web console, object/selection UI panel, and `.vibe` sessions.
+  *Remaining polish:* click-to-pick atom identification and 3D highlighting of named
+  selections (carried into Phase 2).
 - **Phase 2 — Advanced**: cartoon, surfaces, trajectories/states, measurements, alignment,
   sequence viewer, high-quality look (SSAO + outline), scenes & movies.
 - **Phase 3 — Extensibility**: backend & frontend plugin APIs, scripting (`.pml` + Python),

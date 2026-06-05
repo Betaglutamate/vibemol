@@ -37,6 +37,14 @@ class Structure:
     bonds: np.ndarray = field(    # (n_bonds, 2) int32 atom-index pairs
         default_factory=lambda: np.empty((0, 2), dtype=np.int32)
     )
+    ids: np.ndarray = field(      # (n_atoms,) int32 original serial/id ("id" selector)
+        default_factory=lambda: np.empty((0,), dtype=np.int32)
+    )
+
+    def __post_init__(self) -> None:
+        # Default ``ids`` to 1-based atom serials when a parser didn't supply them.
+        if self.ids.shape[0] != self.n_atoms:
+            self.ids = np.arange(1, self.n_atoms + 1, dtype=np.int32)
 
     @property
     def n_atoms(self) -> int:
@@ -70,3 +78,46 @@ class Structure:
             return 1.0
         d = np.linalg.norm(self.coords - self.center(), axis=1)
         return float(d.max())
+
+    def subset(self, keep: np.ndarray) -> Structure:
+        """Return a new Structure containing only atoms where ``keep`` is True,
+        with bonds restricted to surviving atoms and re-indexed."""
+        idx = np.flatnonzero(keep)
+        remap = np.full(self.n_atoms, -1, dtype=np.int64)
+        remap[idx] = np.arange(idx.shape[0])
+        if self.n_bonds:
+            bsel = keep[self.bonds[:, 0]] & keep[self.bonds[:, 1]]
+            bonds = remap[self.bonds[bsel]].astype(np.int32)
+        else:
+            bonds = np.empty((0, 2), dtype=np.int32)
+        return Structure(
+            name=self.name,
+            coords=self.coords[idx].copy(),
+            elements=[self.elements[i] for i in idx],
+            atom_names=[self.atom_names[i] for i in idx],
+            res_names=[self.res_names[i] for i in idx],
+            res_ids=self.res_ids[idx].copy(),
+            chain_ids=[self.chain_ids[i] for i in idx],
+            b_factors=self.b_factors[idx].copy(),
+            occupancies=self.occupancies[idx].copy(),
+            is_hetatm=self.is_hetatm[idx].copy(),
+            bonds=bonds,
+            ids=self.ids[idx].copy(),
+        )
+
+    def residue_labels(self) -> np.ndarray:
+        """Per-atom integer residue labels, grouping atoms by (chain, res_id).
+
+        Used by the ``byres`` selection modifier to expand a mask to whole
+        residues. Returns an (n_atoms,) int array; equal labels share a residue.
+        """
+        labels = np.empty(self.n_atoms, dtype=np.int64)
+        mapping: dict[tuple[str, int], int] = {}
+        for i in range(self.n_atoms):
+            key = (self.chain_ids[i], int(self.res_ids[i]))
+            label = mapping.get(key)
+            if label is None:
+                label = len(mapping)
+                mapping[key] = label
+            labels[i] = label
+        return labels

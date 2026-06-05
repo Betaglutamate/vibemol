@@ -1,6 +1,10 @@
 """Representation geometry generators.
 
-Phase 0 ships sphere geometry via :mod:`vibemol.protocol.geometry`. Phase 1 adds
-lines, sticks, ball-and-stick, nonbonded, and dots; Phase 2 adds cartoon and
-molecular surfaces (marching cubes). All generators emit binary vertex buffers.
+Phase 1 ships lines, sticks, ball-and-stick, spheres, nonbonded, and dots via
+:func:`build_groups`. Phase 2 adds cartoon and molecular surfaces (marching
+cubes). All generators emit binary draw groups (see :mod:`vibemol.protocol`).
 """
+
+from .representations import build_groups
+
+__all__ = ["build_groups"]

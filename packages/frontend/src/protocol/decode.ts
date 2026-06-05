@@ -1,4 +1,11 @@
-import type { RawGeometryMessage, SphereGeometry } from "./types";
+import type {
+  DecodedGroup,
+  DecodedObject,
+  DecodedScene,
+  RawGroup,
+  RawObject,
+  SceneMessage,
+} from "./types";
 
 /** Wrap a raw byte blob as Float32Array, copying to guarantee 4-byte alignment. */
 export function asFloat32(bytes: Uint8Array): Float32Array {
@@ -8,15 +15,61 @@ export function asFloat32(bytes: Uint8Array): Float32Array {
   return new Float32Array(copy.buffer, copy.byteOffset, copy.byteLength / 4);
 }
 
-/** Decode a `geometry` message's bulk fields into GPU-ready typed arrays. */
-export function decodeSpheres(msg: RawGeometryMessage): SphereGeometry {
+function decodeGroup(g: RawGroup): DecodedGroup {
+  switch (g.primitive) {
+    case "spheres":
+      return {
+        primitive: "spheres",
+        count: g.count,
+        positions: asFloat32(g.positions!),
+        radii: asFloat32(g.radii!),
+        colors: asFloat32(g.colors!),
+      };
+    case "cylinders":
+      return {
+        primitive: "cylinders",
+        count: g.count,
+        starts: asFloat32(g.starts!),
+        ends: asFloat32(g.ends!),
+        radii: asFloat32(g.radii!),
+        colors: asFloat32(g.colors!),
+      };
+    case "lines":
+      return {
+        primitive: "lines",
+        count: g.count,
+        positions: asFloat32(g.positions!),
+        colors: asFloat32(g.colors!),
+      };
+    case "points":
+      return {
+        primitive: "points",
+        count: g.count,
+        positions: asFloat32(g.positions!),
+        colors: asFloat32(g.colors!),
+        size: g.size ?? 3,
+      };
+  }
+}
+
+function decodeObject(o: RawObject): DecodedObject {
   return {
-    object: msg.object,
-    nAtoms: msg.n_atoms,
+    name: o.name,
+    visible: o.visible,
+    nAtoms: o.n_atoms,
+    center: o.center,
+    boundingRadius: o.bounding_radius,
+    activeReps: o.active_reps,
+    groups: o.groups.map(decodeGroup),
+  };
+}
+
+export function decodeScene(msg: SceneMessage): DecodedScene {
+  return {
+    settings: msg.settings,
+    selections: msg.selections,
     center: msg.center,
     boundingRadius: msg.bounding_radius,
-    positions: asFloat32(msg.positions),
-    radii: asFloat32(msg.radii),
-    colors: asFloat32(msg.colors),
+    objects: msg.objects.map(decodeObject),
   };
 }
