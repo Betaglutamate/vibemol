@@ -84,7 +84,44 @@ def _assign_ss(ca: np.ndarray) -> list[str]:
             for k in range(i, i + 3):
                 if ss[k] == "L":
                     ss[k] = "S"
+    # Demote runs shorter than a minimum length to coil (reduces noise).
+    for label, min_len in (("H", 4), ("S", 3)):
+        i = 0
+        while i < n:
+            if ss[i] != label:
+                i += 1
+                continue
+            j = i
+            while j < n and ss[j] == label:
+                j += 1
+            if j - i < min_len:
+                for k in range(i, j):
+                    ss[k] = "L"
+            i = j
     return ss
+
+
+def _residue_shapes(ss: list[str]) -> tuple[np.ndarray, np.ndarray]:
+    """Per-residue ribbon (width, thickness); strand runs flare into an arrowhead."""
+    n = len(ss)
+    width = np.empty(n, dtype=np.float32)
+    thick = np.empty(n, dtype=np.float32)
+    for i, s in enumerate(ss):
+        w, h = _SS_SHAPE[s]
+        width[i], thick[i] = w, h
+    # Arrowhead: widen the last residue of each strand run; the following coil's
+    # narrow width then tapers it to a point over the next segment.
+    i = 0
+    while i < n:
+        if ss[i] != "S":
+            i += 1
+            continue
+        j = i
+        while j < n and ss[j] == "S":
+            j += 1
+        width[j - 1] = 1.9  # arrow base
+        i = j
+    return width, thick
 
 
 def _catmull_rom(points: np.ndarray, samples: int) -> tuple[np.ndarray, np.ndarray]:
@@ -157,6 +194,7 @@ def build_cartoon_mesh(
         ca = structure.coords[np.array(ca_idx)]
         res_colors = colors[np.array(ca_idx)]
         ss = _assign_ss(ca)
+        width_res, thick_res = _residue_shapes(ss)
         samples, frac = _catmull_rom(ca, _SAMPLES_PER_SEGMENT)
         normals, binormals = _frames(samples)
         n_samples = samples.shape[0]
@@ -165,11 +203,14 @@ def build_cartoon_mesh(
         ring_norm = np.empty((n_samples, m, 3), dtype=np.float32)
         ring_col = np.empty((n_samples, m, 3), dtype=np.float32)
         for si in range(n_samples):
-            res_i = min(int(round(frac[si])), len(ss) - 1)
-            w, h = _SS_SHAPE[ss[res_i]]
             lo = int(np.floor(frac[si]))
             hi = min(lo + 1, len(res_colors) - 1)
-            col = res_colors[lo] * (1 - (frac[si] - lo)) + res_colors[hi] * (frac[si] - lo)
+            f = frac[si] - lo
+            # Interpolate cross-section + color between adjacent residues for
+            # smooth ribbon width changes (and arrowhead taper).
+            w = float(width_res[lo] * (1 - f) + width_res[hi] * f)
+            h = float(thick_res[lo] * (1 - f) + thick_res[hi] * f)
+            col = res_colors[lo] * (1 - f) + res_colors[hi] * f
             nrm, bnm = normals[si], binormals[si]
             offset = (cos_a[:, None] * w) * nrm + (sin_a[:, None] * h) * bnm
             vnormal = (cos_a[:, None] * h) * nrm + (sin_a[:, None] * w) * bnm

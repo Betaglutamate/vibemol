@@ -88,6 +88,8 @@ export function decodeScene(msg: SceneMessage): DecodedScene {
     selections: msg.selections,
     center: msg.center,
     boundingRadius: msg.bounding_radius,
+    nStates: msg.n_states ?? 1,
+    currentState: msg.current_state ?? 0,
     objects: msg.objects.map(decodeObject),
     measurementLines: msg.measurement_lines ? asFloat32(msg.measurement_lines.positions) : null,
     labels: msg.labels ?? [],

@@ -4,6 +4,11 @@ import type { DecodedScene } from "../protocol/types";
 export interface UIHandlers {
   onCommand: (text: string) => void;
   onFile: (file: File) => void;
+  onDemo: () => void;
+  onResetView: () => void;
+  onSnapshot: () => void;
+  onQuality: (on: boolean) => void;
+  onState: (n: number) => void; // 1-based trajectory frame
 }
 
 const REPS: [string, string][] = [
@@ -32,6 +37,12 @@ export class UI {
   private readonly selectionsEl: HTMLDivElement;
   private readonly sequenceEl: HTMLDivElement;
   private readonly statusEl: HTMLSpanElement;
+  private readonly trajEl: HTMLDivElement;
+  private readonly trajSlider: HTMLInputElement;
+  private readonly trajLabel: HTMLSpanElement;
+  private nStates = 1;
+  private playing = false;
+  private playTimer: number | null = null;
 
   constructor(private readonly handlers: UIHandlers) {
     // --- top toolbar ---
@@ -47,11 +58,27 @@ export class UI {
       textContent: "Fetch",
       onclick: () => fetchInput.value.trim() && handlers.onCommand(`fetch ${fetchInput.value.trim()}`),
     });
+    const demoBtn = el("button", { className: "vm-btn", textContent: "Demo", onclick: handlers.onDemo });
+    const resetBtn = el("button", {
+      className: "vm-btn", textContent: "Reset View", onclick: handlers.onResetView,
+    });
+    const snapBtn = el("button", {
+      className: "vm-btn", textContent: "Snapshot", onclick: handlers.onSnapshot,
+    });
+    let quality = false;
+    const qualityBtn = el("button", { className: "vm-btn", textContent: "Quality: off" });
+    qualityBtn.onclick = () => {
+      quality = !quality;
+      qualityBtn.textContent = `Quality: ${quality ? "on" : "off"}`;
+      qualityBtn.classList.toggle("vm-active", quality);
+      handlers.onQuality(quality);
+    };
     const toolbar = el("div", { className: "vm-toolbar" }, [
       el("span", { className: "vm-label", textContent: "Show" }), ...repButtons,
       el("span", { className: "vm-sep" }),
       el("span", { className: "vm-label", textContent: "Color" }), ...colorButtons,
-      el("span", { className: "vm-sep" }), fetchInput, fetchBtn,
+      el("span", { className: "vm-sep" }), demoBtn, fetchInput, fetchBtn,
+      el("span", { className: "vm-sep" }), resetBtn, snapBtn, qualityBtn,
     ]);
 
     // --- right panel (objects + selections) ---
@@ -61,6 +88,34 @@ export class UI {
       el("div", { className: "vm-panel-title", textContent: "Objects" }), this.objectsEl,
       el("div", { className: "vm-panel-title", textContent: "Selections" }), this.selectionsEl,
     ]);
+
+    // --- trajectory controls (shown only for multi-state objects) ---
+    this.trajLabel = el("span", { className: "vm-label", textContent: "1 / 1" });
+    this.trajSlider = el("input", { className: "vm-slider", type: "range", min: "1", max: "1", value: "1" });
+    this.trajSlider.oninput = () => {
+      this.stopPlaying();
+      handlers.onState(Number(this.trajSlider.value));
+    };
+    const playBtn = el("button", { className: "vm-btn", textContent: "▶" });
+    playBtn.onclick = () => {
+      if (this.playing) {
+        this.stopPlaying();
+        playBtn.textContent = "▶";
+      } else {
+        this.playing = true;
+        playBtn.textContent = "⏸";
+        this.playTimer = window.setInterval(() => {
+          const next = (Number(this.trajSlider.value) % this.nStates) + 1;
+          this.trajSlider.value = String(next);
+          handlers.onState(next);
+        }, 250);
+      }
+    };
+    this.trajEl = el("div", { className: "vm-traj" }, [
+      el("span", { className: "vm-label", textContent: "State" }),
+      playBtn, this.trajSlider, this.trajLabel,
+    ]);
+    this.trajEl.style.display = "none";
 
     // --- sequence viewer (bottom strip above the console) ---
     this.sequenceEl = el("div", { className: "vm-sequence" });
@@ -83,8 +138,16 @@ export class UI {
       el("br"), this.statusEl,
     ]);
 
-    document.body.append(toolbar, panel, this.sequenceEl, consoleEl, hud);
+    document.body.append(toolbar, panel, this.trajEl, this.sequenceEl, consoleEl, hud);
     this.wireDragAndDrop();
+  }
+
+  private stopPlaying(): void {
+    this.playing = false;
+    if (this.playTimer !== null) {
+      clearInterval(this.playTimer);
+      this.playTimer = null;
+    }
   }
 
   setStatus(status: ConnectionStatus): void {
@@ -92,6 +155,18 @@ export class UI {
   }
 
   renderScene(scene: DecodedScene): void {
+    // Trajectory controls: only meaningful when there is more than one state.
+    this.nStates = scene.nStates;
+    if (scene.nStates > 1) {
+      this.trajEl.style.display = "";
+      this.trajSlider.max = String(scene.nStates);
+      this.trajSlider.value = String(scene.currentState + 1);
+      this.trajLabel.textContent = `${scene.currentState + 1} / ${scene.nStates}`;
+    } else {
+      this.trajEl.style.display = "none";
+      this.stopPlaying();
+    }
+
     this.objectsEl.replaceChildren(
       ...(scene.objects.length
         ? scene.objects.map((o) =>

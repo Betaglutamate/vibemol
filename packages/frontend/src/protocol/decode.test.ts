@@ -27,6 +27,8 @@ describe("decodeScene", () => {
       selections: ["sele"],
       center: [0.5, 0.5, 0.5],
       bounding_radius: 1,
+      n_states: 1,
+      current_state: 0,
       objects: [
         {
           name: "demo",
@@ -35,6 +37,8 @@ describe("decodeScene", () => {
           center: [0.5, 0.5, 0.5],
           bounding_radius: 1,
           active_reps: ["spheres"],
+          n_states: 1,
+          current_state: 0,
           groups: [
             {
               primitive: "spheres",

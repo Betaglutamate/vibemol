@@ -175,6 +175,19 @@ def cmd_bg_color(ctx: Context, args: list[str]) -> CommandResult:
     return CommandResult(log=f"bg_color {args[0]}")
 
 
+@command("set_state", "frame", "state")
+def cmd_set_state(ctx: Context, args: list[str]) -> CommandResult:
+    if not args or not args[0]:
+        raise CommandError("usage: set_state <n>  (1-based)")
+    try:
+        n = int(args[0]) - 1  # PyMOL states are 1-based
+    except ValueError as e:
+        raise CommandError(f"set_state: not an integer: {args[0]!r}") from e
+    for obj in ctx.scene.objects.values():
+        obj.structure.set_state(n)
+    return CommandResult(log=f"state {n + 1}")
+
+
 @command("zoom", "orient", "center")
 def cmd_zoom(ctx: Context, args: list[str]) -> CommandResult:
     expr = _sel(args, 0)

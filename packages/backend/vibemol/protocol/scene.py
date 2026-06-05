@@ -55,6 +55,8 @@ def object_message(obj: MolObject) -> dict[str, Any]:
         "center": s.center().tolist(),
         "bounding_radius": s.bounding_radius(),
         "active_reps": obj.active_kinds(),
+        "n_states": s.n_states,
+        "current_state": s.current_state,
         "groups": build_groups(obj),
         # Pick set: every atom position + compact per-atom info, used by the
         # client for click-to-identify regardless of the active representation.
@@ -121,12 +123,16 @@ def _selection_points(scene: Scene) -> bytes | None:
 def scene_message(scene: Scene) -> dict[str, Any]:
     center, radius = _scene_bounds(scene)
     measurement_lines, labels = _measurements_payload(scene)
+    n_states = max((o.structure.n_states for o in scene.objects.values()), default=1)
+    current_state = max((o.structure.current_state for o in scene.objects.values()), default=0)
     return {
         "type": "scene",
         "settings": scene.settings,
         "selections": list(scene.selections.keys()),
         "center": center,
         "bounding_radius": radius,
+        "n_states": n_states,
+        "current_state": current_state,
         "objects": [object_message(o) for o in scene.objects.values()],
         "measurement_lines": measurement_lines,
         "labels": labels,

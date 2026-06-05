@@ -67,14 +67,17 @@ See the directory tree in the project plan. In short: a monorepo with `packages/
   command system + web console, object/selection UI panel, and `.vibe` sessions.
   *Remaining polish:* click-to-pick atom identification and 3D highlighting of named
   selections (carried into Phase 2).
-- **Phase 2 — Advanced** *(in progress)*: done — a shared triangle-`mesh` primitive,
-  **cartoon** (heuristic SS + Catmull-Rom ribbon; protein default), **molecular surface**
-  (Gaussian density + marching cubes, via the `[science]` extra), **measurements**
-  (distance/angle/dihedral + polar contacts, rendered as dashed lines + sprite labels),
-  **alignment** (Kabsch superposition + RMSD), **click-to-pick** atom identification, 3D
-  **selection highlighting**, and a **sequence viewer** synced to selections.
-  *Still to do in Phase 2:* full DSSP + β-arrowheads, trajectories/multi-state playback,
-  high-quality look (SSAO + outline), scenes & movies, and PNG export.
+- **Phase 2 — Advanced** *(done)*: a shared triangle-`mesh` primitive; **cartoon** (heuristic
+  SS with run-smoothing + β-arrowheads, Catmull-Rom ribbon; protein default); **molecular
+  surface** (Gaussian density + marching cubes, via the `[science]` extra); **measurements**
+  (distance/angle/dihedral + polar contacts as dashed lines + sprite labels); **alignment**
+  (Kabsch superposition + RMSD); **click-to-pick** atom identification; 3D **selection
+  highlighting**; a **sequence viewer** synced to selections; **trajectories/multi-state**
+  (multi-model PDB → states, frame slider + play/pause); **PNG snapshot export**; and a
+  **high-quality SSAO** look toggle. The app starts empty (load via Demo/Fetch/drag-drop) and
+  has a client-side **Reset View**.
+  *Genuinely deferred (Phase 2.x/later):* full DSSP, named scenes & movie export, DCD/XTC
+  trajectory formats, and a true edge-outline shader.
 - **Phase 3 — Extensibility**: backend & frontend plugin APIs, scripting (`.pml` + Python),
   versioned public protocol + client SDKs, plugin template.
 - **Phase 4 — Productionization**: auth/workspaces, real-time collaboration, embeddable

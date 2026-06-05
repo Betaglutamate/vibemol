@@ -31,6 +31,16 @@ const ui = new UI({
     }
     client.loadFile(file.name.replace(/\.[^.]+$/, ""), format, await file.text());
   },
+  onDemo: () => client.loadDemo(),
+  onResetView: () => viewer.resetView(),
+  onQuality: (on) => viewer.setQuality(on),
+  onState: (n) => client.runCommand(`set_state ${n}`),
+  onSnapshot: () => {
+    const link = document.createElement("a");
+    link.href = viewer.snapshot();
+    link.download = "vibemol.png";
+    link.click();
+  },
 });
 
 // Drive the UI from store changes; the viewer is updated directly by the client.

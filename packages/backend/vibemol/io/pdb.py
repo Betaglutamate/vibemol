@@ -44,15 +44,23 @@ def parse_pdb_text(text: str, name: str = "structure") -> Structure:
     serial_to_index: dict[int, int] = {}
     conect: list[tuple[int, int]] = []
 
+    # Topology (elements/names/…) is read from the first model; every model's
+    # coordinates are collected so NMR ensembles / trajectories become states.
+    models: list[list[tuple[float, float, float]]] = []
+    cur: list[tuple[float, float, float]] = []
+    in_first_model = True
+
     for line in text.splitlines():
         record = line[:6]
         if record in ("ATOM  ", "HETATM"):
-            # Take only the first model: stop at the first ENDMDL boundary.
             try:
                 x = float(line[30:38])
                 y = float(line[38:46])
                 z = float(line[46:54])
             except ValueError:
+                continue
+            cur.append((x, y, z))
+            if not in_first_model:
                 continue
             try:
                 serial = int(line[6:11])
@@ -89,10 +97,21 @@ def parse_pdb_text(text: str, name: str = "structure") -> Structure:
                 field = line[col:col + 5].strip()
                 if field:
                     conect.append((a, int(field)))
+        elif record == "MODEL ":
+            cur = []
         elif record == "ENDMDL":
-            break  # first model only for Phase 0
+            models.append(cur)
+            in_first_model = False
+            cur = []
+    if cur:  # a trailing/only model with no ENDMDL
+        models.append(cur)
 
     coords_arr = np.array(coords, dtype=np.float32).reshape(-1, 3)
+    n_atoms = coords_arr.shape[0]
+    # Build the states array from models that match the topology atom count.
+    valid = [np.array(m, dtype=np.float32) for m in models if len(m) == n_atoms]
+    states = np.stack(valid) if len(valid) > 1 else None
+
     structure = Structure(
         name=name,
         coords=coords_arr,
@@ -105,6 +124,7 @@ def parse_pdb_text(text: str, name: str = "structure") -> Structure:
         occupancies=np.array(occupancies, dtype=np.float32),
         is_hetatm=np.array(is_hetatm, dtype=bool),
         ids=np.array(ids, dtype=np.int32),
+        states=states,
     )
 
     # Bonds: prefer explicit CONECT, then fill the rest by distance inference.

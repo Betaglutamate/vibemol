@@ -23,6 +23,7 @@
       .vm-btn { background: #1d242c; color: var(--fg); border: 1px solid #2c343d;
         border-radius: 6px; padding: 4px 9px; cursor: pointer; font: inherit; }
       .vm-btn:hover { background: #28313b; border-color: #3a4654; }
+      .vm-btn.vm-active { background: #2a6f8a; border-color: #6fd3ff; color: #fff; }
       .vm-input { background: #0e1216; color: var(--fg); border: 1px solid #2c343d;
         border-radius: 6px; padding: 4px 8px; font: inherit; }
 
@@ -34,6 +35,12 @@
       .vm-row { display: flex; justify-content: space-between; align-items: center; gap: 8px; }
       .vm-x { background: none; border: none; color: var(--dim); cursor: pointer; font: inherit; }
       .vm-x:hover { color: #ff6b6b; }
+
+      .vm-traj { position: fixed; bottom: 305px; left: 50%; transform: translateX(-50%);
+        z-index: 10; display: flex; align-items: center; gap: 8px;
+        background: rgba(17,21,26,0.92); border: 1px solid #232a32; border-radius: 8px;
+        padding: 6px 12px; }
+      .vm-slider { width: 220px; }
 
       .vm-sequence { position: fixed; bottom: 190px; left: 0; right: 0; z-index: 10;
         max-height: 110px; overflow-y: auto; padding: 4px 12px;

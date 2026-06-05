@@ -60,6 +60,8 @@ export interface RawObject {
   center: [number, number, number];
   bounding_radius: number;
   active_reps: string[];
+  n_states: number;
+  current_state: number;
   groups: RawGroup[];
   pick_positions: Uint8Array;
   atoms: AtomInfo;
@@ -77,6 +79,8 @@ export interface SceneMessage {
   selections: string[];
   center: [number, number, number];
   bounding_radius: number;
+  n_states: number;
+  current_state: number;
   objects: RawObject[];
   measurement_lines: { count: number; positions: Uint8Array } | null;
   labels: Label[];
@@ -124,6 +128,8 @@ export interface DecodedScene {
   selections: string[];
   center: [number, number, number];
   boundingRadius: number;
+  nStates: number;
+  currentState: number;
   objects: DecodedObject[];
   measurementLines: Float32Array | null;
   labels: Label[];

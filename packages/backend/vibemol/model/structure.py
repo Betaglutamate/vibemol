@@ -40,11 +40,25 @@ class Structure:
     ids: np.ndarray = field(      # (n_atoms,) int32 original serial/id ("id" selector)
         default_factory=lambda: np.empty((0,), dtype=np.int32)
     )
+    states: np.ndarray | None = None  # (n_states, n_atoms, 3) for trajectories/NMR models
+    current_state: int = 0            # index into states that `coords` reflects
 
     def __post_init__(self) -> None:
         # Default ``ids`` to 1-based atom serials when a parser didn't supply them.
         if self.ids.shape[0] != self.n_atoms:
             self.ids = np.arange(1, self.n_atoms + 1, dtype=np.int32)
+
+    @property
+    def n_states(self) -> int:
+        return 1 if self.states is None else int(self.states.shape[0])
+
+    def set_state(self, state: int) -> None:
+        """Point ``coords`` at multi-state frame ``state`` (clamped, wraps off-end)."""
+        if self.states is None or self.states.shape[0] <= 1:
+            return
+        state = int(state) % self.states.shape[0]
+        self.current_state = state
+        self.coords = self.states[state]
 
     @property
     def n_atoms(self) -> int:

@@ -33,10 +33,7 @@ export class SceneClient {
     socket.binaryType = "arraybuffer";
     this.socket = socket;
 
-    socket.onopen = () => {
-      setStatus("open");
-      this.send({ type: "load", source: "demo" }); // start with the bundled demo
-    };
+    socket.onopen = () => setStatus("open"); // start empty; the user loads/fetches a structure
 
     socket.onmessage = (ev: MessageEvent<ArrayBuffer>) => {
       const msg = decode(new Uint8Array(ev.data)) as ServerMessage;
@@ -64,6 +61,10 @@ export class SceneClient {
       appStore.getState().appendLog({ level: "info", message: `> ${text}` });
       this.send({ type: "command", text });
     }
+  }
+
+  loadDemo(): void {
+    this.send({ type: "load", source: "demo" });
   }
 
   loadFile(name: string, format: string, text: string): void {

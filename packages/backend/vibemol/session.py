@@ -59,23 +59,26 @@ def save_session(scene: Scene, path: str | Path) -> None:
                         "atom_names": s.atom_names,
                         "res_names": s.res_names,
                         "chain_ids": s.chain_ids,
+                        "current_state": s.current_state,
                     }
                 ),
             )
             rep_stack = np.stack([obj.rep_masks[k] for k in REP_KINDS])
+            arrays = {
+                "coords": s.coords,
+                "res_ids": s.res_ids,
+                "b_factors": s.b_factors,
+                "occupancies": s.occupancies,
+                "is_hetatm": s.is_hetatm,
+                "bonds": s.bonds,
+                "ids": s.ids,
+                "colors": obj.colors,
+                "rep_masks": rep_stack,
+            }
+            if s.states is not None:
+                arrays["states"] = s.states
             buf = io.BytesIO()
-            np.savez_compressed(
-                buf,
-                coords=s.coords,
-                res_ids=s.res_ids,
-                b_factors=s.b_factors,
-                occupancies=s.occupancies,
-                is_hetatm=s.is_hetatm,
-                bonds=s.bonds,
-                ids=s.ids,
-                colors=obj.colors,
-                rep_masks=rep_stack,
-            )
+            np.savez_compressed(buf, **arrays)  # type: ignore[arg-type]  # numpy stub quirk
             zf.writestr(f"objects/{i}/arrays.npz", buf.getvalue())
 
 
@@ -104,6 +107,8 @@ def load_session(path: str | Path) -> Scene:
                     is_hetatm=arr["is_hetatm"],
                     bonds=arr["bonds"],
                     ids=arr["ids"],
+                    states=arr["states"] if "states" in arr.files else None,
+                    current_state=int(meta.get("current_state", 0)),
                 )
                 obj = MolObject(name=name, structure=structure, visible=meta["visible"])
                 obj.colors = arr["colors"]

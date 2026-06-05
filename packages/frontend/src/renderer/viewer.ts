@@ -34,6 +34,10 @@ import {
   WebGLRenderer,
 } from "three";
 import { OrbitControls } from "three/addons/controls/OrbitControls.js";
+import { EffectComposer } from "three/addons/postprocessing/EffectComposer.js";
+import { RenderPass } from "three/addons/postprocessing/RenderPass.js";
+import { SSAOPass } from "three/addons/postprocessing/SSAOPass.js";
+import { OutputPass } from "three/addons/postprocessing/OutputPass.js";
 
 import type { DecodedScene, DecodedGroup, Label } from "../protocol/types";
 
@@ -56,6 +60,10 @@ export class Viewer {
   private readonly raycaster = new Raycaster();
   private pointerDown: { x: number; y: number } | null = null;
   private hasFramed = false;
+  private lastCenter: [number, number, number] = [0, 0, 0];
+  private lastRadius = 10;
+  private composer: EffectComposer | null = null;
+  private quality = false;
 
   /** Set by the app to receive click-to-pick events (objectName, atomIndex). */
   onPick: ((objectName: string, atomIndex: number) => void) | null = null;
@@ -68,7 +76,8 @@ export class Viewer {
     this.camera = new PerspectiveCamera(45, w / h, 0.1, 5000);
     this.camera.position.set(0, 0, 40);
 
-    this.renderer = new WebGLRenderer({ antialias: true });
+    // preserveDrawingBuffer lets us snapshot the canvas to a PNG on demand.
+    this.renderer = new WebGLRenderer({ antialias: true, preserveDrawingBuffer: true });
     this.renderer.setPixelRatio(window.devicePixelRatio);
     this.renderer.setSize(w, h);
     container.appendChild(this.renderer.domElement);
@@ -102,10 +111,46 @@ export class Viewer {
     if (scene.measurementLines) this.root.add(this.dashedLines(scene.measurementLines));
     if (scene.selectionPoints) this.root.add(this.selectionMarkers(scene.selectionPoints));
     for (const label of scene.labels) this.root.add(this.label(label));
+
+    this.lastCenter = scene.center;
+    this.lastRadius = scene.boundingRadius;
     if (!this.hasFramed && scene.objects.length > 0) {
       this.frameTo(scene.center, scene.boundingRadius);
       this.hasFramed = true;
     }
+    // Re-arm framing when the scene empties, so the next load re-zooms.
+    if (scene.objects.length === 0) this.hasFramed = false;
+  }
+
+  /** Reframe the camera to show the whole molecule (client-side, instant). */
+  resetView(): void {
+    this.frameTo(this.lastCenter, this.lastRadius);
+  }
+
+  /** Render once and return a PNG data URL of the current view. */
+  snapshot(): string {
+    this.renderFrame();
+    return this.renderer.domElement.toDataURL("image/png");
+  }
+
+  /** Toggle the high-quality screen-space ambient occlusion pass. */
+  setQuality(on: boolean): boolean {
+    this.quality = on;
+    if (on && !this.composer) this.buildComposer();
+    return this.quality;
+  }
+
+  private buildComposer(): void {
+    const { clientWidth: w, clientHeight: h } = this.container;
+    const composer = new EffectComposer(this.renderer);
+    composer.addPass(new RenderPass(this.scene, this.camera));
+    const ssao = new SSAOPass(this.scene, this.camera, w, h);
+    ssao.kernelRadius = 8;
+    ssao.minDistance = 0.002;
+    ssao.maxDistance = 0.1;
+    composer.addPass(ssao);
+    composer.addPass(new OutputPass());
+    this.composer = composer;
   }
 
   /** Move the camera to frame a sphere of the given center and radius. */
@@ -327,13 +372,19 @@ export class Viewer {
   private animate = (): void => {
     requestAnimationFrame(this.animate);
     this.controls.update();
-    this.renderer.render(this.scene, this.camera);
+    this.renderFrame();
   };
+
+  private renderFrame(): void {
+    if (this.quality && this.composer) this.composer.render();
+    else this.renderer.render(this.scene, this.camera);
+  }
 
   private onResize = (): void => {
     const { clientWidth: w, clientHeight: h } = this.container;
     this.camera.aspect = w / h;
     this.camera.updateProjectionMatrix();
     this.renderer.setSize(w, h);
+    this.composer?.setSize(w, h);
   };
 }
