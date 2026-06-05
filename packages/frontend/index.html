@@ -1,0 +1,27 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>VibeMol</title>
+    <style>
+      html, body { margin: 0; height: 100%; overflow: hidden; background: #0b0d10; }
+      #app { position: fixed; inset: 0; }
+      #hud {
+        position: fixed; top: 12px; left: 14px; z-index: 10;
+        font: 13px/1.4 ui-monospace, SFMono-Regular, Menlo, monospace;
+        color: #cdd3da; pointer-events: none; user-select: none;
+      }
+      #hud b { color: #6fd3ff; }
+      #status { color: #8a93a0; }
+    </style>
+  </head>
+  <body>
+    <div id="app"></div>
+    <div id="hud">
+      <div><b>VibeMol</b> <span style="color:#5b636e">— Phase 0 walking skeleton</span></div>
+      <div id="status">connecting…</div>
+    </div>
+    <script type="module" src="/src/main.ts"></script>
+  </body>
+</html>

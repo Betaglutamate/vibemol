@@ -1,0 +1,67 @@
+[build-system]
+requires = ["setuptools>=68", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "vibemol"
+version = "0.0.1"
+description = "A web-native, open-source molecular viewer — PyMOL core functionality in the browser."
+readme = "README.md"
+requires-python = ">=3.11"
+license = { text = "MIT" }
+authors = [{ name = "VibeMol contributors" }]
+keywords = ["molecular-visualization", "pymol", "structural-biology", "webgl", "fastapi"]
+
+# Phase 0 keeps the core install light so `vibemol serve` works immediately.
+# Heavy scientific deps (gemmi, rdkit, scikit-image, …) arrive with the Phase 1 [science] extra.
+dependencies = [
+    "fastapi>=0.110",
+    "uvicorn[standard]>=0.29",
+    "pydantic>=2.6",
+    "numpy>=1.26",
+    "msgpack>=1.0",
+]
+
+[project.optional-dependencies]
+science = [
+    "gemmi>=0.6",
+    "biopython>=1.83",
+    "rdkit>=2023.9",
+    "scipy>=1.12",
+    "scikit-image>=0.22",
+]
+dev = [
+    "pytest>=8.0",
+    "httpx>=0.27",
+    "ruff>=0.4",
+    "mypy>=1.9",
+]
+
+[project.scripts]
+vibemol = "vibemol.cli:main"
+
+[tool.setuptools.packages.find]
+where = ["."]
+include = ["vibemol*"]
+
+[tool.setuptools.package-data]
+vibemol = ["data/*.pdb", "static/**/*"]
+
+[tool.ruff]
+line-length = 100
+target-version = "py311"
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "UP", "B"]
+
+[tool.mypy]
+python_version = "3.11"
+warn_unused_ignores = true
+disallow_untyped_defs = true
+ignore_missing_imports = true
+# Some third-party deps (e.g. msgpack) ship without stubs / a py.typed marker;
+# don't fail the type gate on their lack of types.
+disable_error_code = ["import-untyped"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]

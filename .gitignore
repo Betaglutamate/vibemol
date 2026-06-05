@@ -1,0 +1,33 @@
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+.eggs/
+build/
+dist/
+.venv/
+venv/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.coverage
+htmlcov/
+
+# Node / frontend
+node_modules/
+packages/frontend/dist/
+.vite/
+*.local
+
+# Built SPA emitted into the backend package (build artifact)
+packages/backend/vibemol/static/
+
+# Editors / OS / tooling
+.vscode/
+.idea/
+.DS_Store
+.claude/
+
+# VibeMol
+*.vibe
+.vibemol_cache/
