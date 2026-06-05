@@ -30,8 +30,9 @@ _SS_SHAPE = {
     "S": (1.10, 0.32),   # strand: flat ribbon
 }
 _NUCLEIC_SHAPE = (0.75, 0.75)  # DNA/RNA backbone: a fat rounded tube
-# Trace-atom preference for nucleic-acid residues (5'-terminal residues lack P).
-_NUCLEIC_TRACE = ("P", "C3'", "C4'", "C1'", "O5'")
+# Trace-atom preference for nucleic-acid residues. Sugar atoms (C3'/C4') give a
+# smoother backbone than the phosphates and exist on 5'-terminal residues too.
+_NUCLEIC_TRACE = ("C3'", "C4'", "P", "C1'", "O5'")
 
 
 def _residue_trace_atoms(structure: Structure) -> list[tuple[tuple[str, int], int, bool]]:

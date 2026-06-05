@@ -16,17 +16,31 @@ from ..model.scene import MolObject, Scene
 from ..model.structure import Structure
 from .geometry import f32
 
-# Three-letter -> one-letter amino acid codes (for the sequence viewer).
+# Three-letter -> one-letter codes for the sequence viewer.
 _AA3to1 = {
     "ALA": "A", "ARG": "R", "ASN": "N", "ASP": "D", "CYS": "C", "GLN": "Q",
     "GLU": "E", "GLY": "G", "HIS": "H", "ILE": "I", "LEU": "L", "LYS": "K",
     "MET": "M", "PHE": "F", "PRO": "P", "SER": "S", "THR": "T", "TRP": "W",
-    "TYR": "Y", "VAL": "V",
+    "TYR": "Y", "VAL": "V", "MSE": "M", "SEC": "U", "PYL": "O",
+}
+# Nucleic acids: DNA (DA/DC/DG/DT) and RNA (A/C/G/U).
+_NUC1 = {
+    "DA": "A", "DC": "C", "DG": "G", "DT": "T", "DU": "U", "DI": "I",
+    "A": "A", "C": "C", "G": "G", "U": "U", "I": "I", "N": "N",
 }
 
 
+def _residue_code(resn: str) -> str | None:
+    """One-letter code for a residue, or None for non-polymer (water/ligand/ion)."""
+    key = resn.upper()
+    return _AA3to1.get(key) or _NUC1.get(key)
+
+
 def _residues_payload(s: Structure) -> list[dict[str, Any]]:
-    """Ordered residues (by first appearance) with one-letter codes."""
+    """Ordered polymer residues (by first appearance) with one-letter codes.
+
+    Non-polymer residues (waters, ligands, ions) are omitted so the sequence
+    viewer shows a clean protein/nucleic sequence rather than runs of 'X'."""
     out: list[dict[str, Any]] = []
     seen: set[tuple[str, int]] = set()
     for i in range(s.n_atoms):
@@ -34,12 +48,15 @@ def _residues_payload(s: Structure) -> list[dict[str, Any]]:
         if key in seen:
             continue
         seen.add(key)
+        code = _residue_code(s.res_names[i])
+        if code is None:
+            continue  # skip waters / ligands / ions
         out.append(
             {
                 "chain": s.chain_ids[i],
                 "resi": int(s.res_ids[i]),
                 "resn": s.res_names[i],
-                "code": _AA3to1.get(s.res_names[i].upper(), "X"),
+                "code": code,
             }
         )
     return out

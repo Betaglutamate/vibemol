@@ -63,3 +63,36 @@ def test_bad_smiles_raises() -> None:
 
     with pytest.raises(ValueError):
         load_text("this is not smiles!!!", "smiles")
+
+
+def test_nucleic_sequence_codes() -> None:
+    from vibemol.protocol.scene import _residue_code
+
+    assert _residue_code("DA") == "A" and _residue_code("DG") == "G"
+    assert _residue_code("U") == "U"  # RNA
+    assert _residue_code("ALA") == "A"
+    assert _residue_code("HOH") is None and _residue_code("GOL") is None  # non-polymer skipped
+
+
+@pytest.mark.skipif(importlib.util.find_spec("gemmi") is None, reason="requires gemmi")
+def test_mmcif_unquotes_atom_names() -> None:
+    from vibemol.io.science import parse_mmcif_text
+
+    # mmCIF quotes atom names containing a prime; they must come back unquoted.
+    cif = """data_t
+loop_
+_atom_site.group_PDB
+_atom_site.type_symbol
+_atom_site.label_atom_id
+_atom_site.label_comp_id
+_atom_site.label_asym_id
+_atom_site.label_seq_id
+_atom_site.Cartn_x
+_atom_site.Cartn_y
+_atom_site.Cartn_z
+ATOM P P DA A 1 0.0 0.0 0.0
+ATOM C "C3'" DA A 1 1.5 0.0 0.0
+"""
+    s = parse_mmcif_text(cif)
+    assert s.n_atoms == 2
+    assert "C3'" in s.atom_names  # not '"C3\'"'

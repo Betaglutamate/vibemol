@@ -29,7 +29,9 @@ def parse_mmcif_text(text: str, name: str = "structure") -> Structure:
     block = gemmi.cif.read_string(text).sole_block()
 
     def col(tag: str) -> list[str]:
-        return list(block.find_loop(f"_atom_site.{tag}"))
+        # as_string strips CIF quoting — e.g. atom names like "C3'" are quoted
+        # because they contain a prime; without this they'd keep literal quotes.
+        return [gemmi.cif.as_string(v) for v in block.find_loop(f"_atom_site.{tag}")]
 
     xs, ys, zs = col("Cartn_x"), col("Cartn_y"), col("Cartn_z")
     n = len(xs)
