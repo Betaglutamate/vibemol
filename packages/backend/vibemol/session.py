@@ -17,6 +17,7 @@ import io
 import json
 import zipfile
 from pathlib import Path
+from typing import IO
 
 import numpy as np
 
@@ -27,8 +28,20 @@ _FORMAT = "vibemol-session"
 _VERSION = 1
 
 
-def save_session(scene: Scene, path: str | Path) -> None:
-    """Write the scene to a ``.vibe`` archive at ``path``."""
+def dump_session(scene: Scene) -> bytes:
+    """Serialize the scene to ``.vibe`` archive bytes (for download)."""
+    buf = io.BytesIO()
+    save_session(scene, buf)
+    return buf.getvalue()
+
+
+def load_session_bytes(data: bytes) -> Scene:
+    """Load a scene from ``.vibe`` archive bytes (from an upload)."""
+    return load_session(io.BytesIO(data))
+
+
+def save_session(scene: Scene, path: str | Path | IO[bytes]) -> None:
+    """Write the scene to a ``.vibe`` archive (a path or a binary file object)."""
     names = list(scene.objects)
     index_of = {name: i for i, name in enumerate(names)}
 
@@ -82,8 +95,8 @@ def save_session(scene: Scene, path: str | Path) -> None:
             zf.writestr(f"objects/{i}/arrays.npz", buf.getvalue())
 
 
-def load_session(path: str | Path) -> Scene:
-    """Read a ``.vibe`` archive into a new :class:`Scene`."""
+def load_session(path: str | Path | IO[bytes]) -> Scene:
+    """Read a ``.vibe`` archive (a path or a binary file object) into a Scene."""
     scene = Scene()
     with zipfile.ZipFile(path, "r") as zf:
         manifest = json.loads(zf.read("manifest.json"))

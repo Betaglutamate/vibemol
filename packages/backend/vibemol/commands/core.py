@@ -8,7 +8,15 @@ from __future__ import annotations
 
 import numpy as np
 
-from ..color import color_by_chain, color_by_element, color_spectrum, parse_color
+from ..color import (
+    color_by_chain,
+    color_by_charge,
+    color_by_element,
+    color_by_hydrophobicity,
+    color_by_secondary_structure,
+    color_spectrum,
+    parse_color,
+)
 from ..io import fetch_pdb, load_path
 from ..model.scene import REP_KINDS
 from .registry import CommandError, CommandResult, Context, command
@@ -19,7 +27,18 @@ _REP_ALIASES = {
     "nb": "nonbonded", "nonbond": "nonbonded", "bs": "ball_and_stick",
     "ball+stick": "ball_and_stick", "licorice": "sticks",
 }
-_COLOR_SCHEMES = {"byelement", "cpk", "element", "bychain", "spectrum"}
+# Coloring schemes (vs. a flat color) -> the function that computes per-atom RGB.
+_COLOR_SCHEMES = {
+    "byelement": color_by_element,
+    "cpk": color_by_element,
+    "element": color_by_element,
+    "bychain": color_by_chain,
+    "spectrum": lambda s: color_spectrum(s, by="b"),
+    "hydrophobicity": color_by_hydrophobicity,
+    "hydro": color_by_hydrophobicity,
+    "charge": color_by_charge,
+    "ss": color_by_secondary_structure,
+}
 
 
 def _rep(name: str) -> str:
@@ -107,22 +126,18 @@ def cmd_color(ctx: Context, args: list[str]) -> CommandResult:
         raise CommandError("usage: color <color|scheme> [, <selection>]")
     spec = args[0].lower()
     expr = _sel(args, 1)
-    scheme = spec if spec in _COLOR_SCHEMES else None
-    rgb = None if scheme else parse_color(args[0])
+    scheme_fn = _COLOR_SCHEMES.get(spec)
+    rgb = None if scheme_fn else parse_color(args[0])
 
     masks = ctx.resolve(expr)
     for name, obj in ctx.scene.objects.items():
         mask = masks[name]
         if not mask.any():
             continue
-        if scheme is None:
+        if scheme_fn is None:
             obj.colors[mask] = rgb
-        elif scheme == "bychain":
-            obj.colors[mask] = color_by_chain(obj.structure)[mask]
-        elif scheme == "spectrum":
-            obj.colors[mask] = color_spectrum(obj.structure, by="b")[mask]
-        else:  # byelement / cpk / element
-            obj.colors[mask] = color_by_element(obj.structure)[mask]
+        else:
+            obj.colors[mask] = scheme_fn(obj.structure)[mask]
     return CommandResult(log=f"color {spec}")
 
 

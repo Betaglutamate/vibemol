@@ -8,6 +8,7 @@ via :mod:`vibemol.io.science`.
 from .fetch import fetch_pdb
 from .loaders import SUPPORTED_FORMATS, load_path, load_text
 from .pdb import parse_pdb_file, parse_pdb_text
+from .write_pdb import write_pdb
 from .xyz import parse_xyz_file, parse_xyz_text
 
 __all__ = [
@@ -18,5 +19,6 @@ __all__ = [
     "fetch_pdb",
     "load_text",
     "load_path",
+    "write_pdb",
     "SUPPORTED_FORMATS",
 ]

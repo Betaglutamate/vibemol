@@ -20,10 +20,11 @@ from fastapi.staticfiles import StaticFiles
 
 from .. import __version__
 from ..commands import Context, dispatch, registered_commands
-from ..io import load_text
+from ..io import load_text, write_pdb
 from ..io.pdb import parse_pdb_text
 from ..model.scene import Scene
 from ..protocol.scene import scene_message
+from ..session import dump_session, load_session_bytes
 
 _STATIC_DIR = Path(__file__).resolve().parent.parent / "static"
 
@@ -100,6 +101,36 @@ async def _handle(socket: WebSocket, ctx: Context, msg: dict) -> None:
             await _send(socket, {"type": "camera", **result.camera})
         if result.scene_changed or result.selections_changed:
             await _send(socket, scene_message(ctx.scene))
+
+    elif msg_type == "save_session":
+        data = dump_session(ctx.scene)
+        await _send(socket, {
+            "type": "download", "filename": "session.vibe",
+            "mime": "application/octet-stream", "data": data,
+        })
+        await _log(socket, f"saved session ({len(data)} bytes)")
+
+    elif msg_type == "load_session":
+        try:
+            ctx.scene = load_session_bytes(bytes(msg["data"]))
+        except Exception as exc:
+            await _log(socket, f"open session failed: {exc}", level="error")
+            return
+        await _send(socket, scene_message(ctx.scene))
+        await _log(socket, "opened session")
+
+    elif msg_type == "export_structure":
+        name = msg.get("object")
+        objects = ctx.scene.objects
+        target = objects.get(name) if name else next(iter(objects.values()), None)
+        if target is None:
+            await _log(socket, "export: no such object", level="error")
+            return
+        await _send(socket, {
+            "type": "download", "filename": f"{target.name}.pdb",
+            "mime": "chemical/x-pdb", "data": write_pdb(target.structure),
+        })
+        await _log(socket, f"exported {target.name} as PDB")
 
     else:
         await _log(socket, f"unknown message type: {msg_type!r}", level="error")

@@ -101,6 +101,36 @@ def _assign_ss(ca: np.ndarray) -> list[str]:
     return ss
 
 
+def assign_chain_ss(structure: Structure) -> dict[tuple[str, int], str]:
+    """Secondary structure per residue ('H'/'S'/'L') keyed by (chain, resid).
+
+    Groups CA atoms into chains (in order of appearance), runs the per-chain
+    :func:`_assign_ss` heuristic, and maps the result back to residue keys.
+    Residues without a CA default to 'L'. Reused by the SS coloring scheme.
+    """
+    chains: dict[str, list[tuple[int, np.ndarray]]] = {}
+    for i, name in enumerate(structure.atom_names):
+        if name.upper() != "CA" or structure.elements[i] != "C":
+            continue
+        chain = structure.chain_ids[i]
+        resid = int(structure.res_ids[i])
+        residues = chains.setdefault(chain, [])
+        if not residues or residues[-1][0] != resid:  # first CA per residue, ordered
+            residues.append((resid, structure.coords[i]))
+
+    out: dict[tuple[str, int], str] = {}
+    for chain, residues in chains.items():
+        if len(residues) < 2:
+            for resid, _ in residues:
+                out[(chain, resid)] = "L"
+            continue
+        ca = np.array([c for _, c in residues], dtype=np.float32)
+        ss = _assign_ss(ca)
+        for (resid, _), label in zip(residues, ss, strict=True):
+            out[(chain, resid)] = label
+    return out
+
+
 def _residue_shapes(ss: list[str]) -> tuple[np.ndarray, np.ndarray]:
     """Per-residue ribbon (width, thickness); strand runs flare into an arrowhead."""
     n = len(ss)

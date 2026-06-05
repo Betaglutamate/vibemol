@@ -5,7 +5,8 @@ from __future__ import annotations
 
 import numpy as np
 
-from ..analysis import angle, apply_transform, dihedral, distance, kabsch, polar_contacts
+from ..analysis import angle, apply_transform, dihedral, distance, kabsch, polar_contacts, sasa
+from ..color import color_values
 from ..model.scene import Measurement
 from ..select import select
 from .registry import CommandError, CommandResult, Context, command
@@ -86,6 +87,45 @@ def cmd_polar_contacts(ctx: Context, args: list[str]) -> CommandResult:
 def cmd_clear_measurements(ctx: Context, _args: list[str]) -> CommandResult:
     ctx.scene.measurements.clear()
     return CommandResult(log="cleared measurements")
+
+
+@command("sasa", "surface_area")
+def cmd_sasa(ctx: Context, args: list[str]) -> CommandResult:
+    expr = args[0] if args and args[0] else "all"
+    total = 0.0
+    n_atoms = 0
+    for obj in ctx.scene.objects.values():
+        mask = select(obj.structure, expr)
+        if not mask.any():
+            continue
+        areas = sasa(obj.structure, mask)
+        total += float(areas[mask].sum())
+        n_atoms += int(mask.sum())
+        # Color atoms by exposure (buried -> blue, exposed -> red) for a visual read.
+        obj.colors[mask] = color_values(areas, obj.structure.n_atoms)[mask]
+    if n_atoms == 0:
+        raise CommandError(f"sasa: selection matched no atoms: {expr!r}")
+    return CommandResult(log=f"SASA = {total:.1f} A^2 over {n_atoms} atoms")
+
+
+@command("interface")
+def cmd_interface(ctx: Context, args: list[str]) -> CommandResult:
+    if len(args) < 2:
+        raise CommandError("usage: interface <sel1>, <sel2> [, cutoff=5]")
+    sel1, sel2 = args[0], args[1]
+    cutoff = args[2].strip() if len(args) > 2 and args[2].strip() else "5"
+    # Residues of sel1 near sel2 (and vice versa) — reuses within/byres + named refs.
+    near12 = f"(({sel1}) and (within {cutoff} of ({sel2})))"
+    near21 = f"(({sel2}) and (within {cutoff} of ({sel1})))"
+    expr = f"byres ({near12} or {near21})"
+    masks = ctx.resolve(expr)
+    ctx.scene.selections["interface"] = masks
+    total = sum(int(m.sum()) for m in masks.values())
+    return CommandResult(
+        log=f"interface: {total} atoms (within {cutoff} A)",
+        scene_changed=False,
+        selections_changed=True,
+    )
 
 
 @command("align", "super")

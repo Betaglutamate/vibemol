@@ -64,12 +64,75 @@ def color_by_chain(structure: Structure) -> np.ndarray:
 
 def color_spectrum(structure: Structure, *, by: str = "b") -> np.ndarray:
     """Rainbow spectrum (blue=low -> red=high) over b-factor or occupancy."""
-    values = structure.b_factors if by == "b" else structure.occupancies
+    return color_values(
+        structure.b_factors if by == "b" else structure.occupancies, structure.n_atoms
+    )
+
+
+def color_values(values: np.ndarray, n_atoms: int) -> np.ndarray:
+    """Map a per-atom scalar array to a blue->red rainbow (min->max)."""
     lo, hi = float(values.min()), float(values.max())
     span = hi - lo if hi > lo else 1.0
     norm = (values - lo) / span
-    out = np.empty((structure.n_atoms, 3), dtype=np.float32)
+    out = np.empty((n_atoms, 3), dtype=np.float32)
     for i, v in enumerate(norm):
         hue = (1.0 - float(v)) * (2.0 / 3.0)  # 0.667 (blue) -> 0.0 (red)
         out[i] = colorsys.hsv_to_rgb(hue, 1.0, 1.0)
+    return out
+
+
+# Kyte-Doolittle hydropathy (higher = more hydrophobic).
+KYTE_DOOLITTLE: dict[str, float] = {
+    "ILE": 4.5, "VAL": 4.2, "LEU": 3.8, "PHE": 2.8, "CYS": 2.5, "MET": 1.9, "ALA": 1.8,
+    "GLY": -0.4, "THR": -0.7, "SER": -0.8, "TRP": -0.9, "TYR": -1.3, "PRO": -1.6,
+    "HIS": -3.2, "GLU": -3.5, "GLN": -3.5, "ASP": -3.5, "ASN": -3.5, "LYS": -3.9, "ARG": -4.5,
+}
+# Formal charge by residue at physiological pH.
+RESIDUE_CHARGE: dict[str, float] = {
+    "ASP": -1.0, "GLU": -1.0, "LYS": 1.0, "ARG": 1.0, "HIS": 0.5,
+}
+
+
+def color_by_hydrophobicity(structure: Structure) -> np.ndarray:
+    """Kyte-Doolittle hydropathy: teal (hydrophilic) -> orange (hydrophobic)."""
+    hydrophilic = np.array([0.30, 0.75, 0.78], dtype=np.float32)  # teal
+    hydrophobic = np.array([1.00, 0.55, 0.15], dtype=np.float32)  # orange
+    grey = np.array([0.62, 0.62, 0.62], dtype=np.float32)
+    out = np.empty((structure.n_atoms, 3), dtype=np.float32)
+    for i, resn in enumerate(structure.res_names):
+        kd = KYTE_DOOLITTLE.get(resn.upper())
+        if kd is None:
+            out[i] = grey
+        else:
+            t = (kd + 4.5) / 9.0  # normalize [-4.5, 4.5] -> [0, 1]
+            out[i] = hydrophilic * (1 - t) + hydrophobic * t
+    return out
+
+
+def color_by_charge(structure: Structure) -> np.ndarray:
+    """Acidic (Asp/Glu) red, basic (Lys/Arg/His) blue, neutral light grey."""
+    neg = np.array([1.0, 0.3, 0.3], dtype=np.float32)
+    pos = np.array([0.3, 0.45, 1.0], dtype=np.float32)
+    neutral = np.array([0.85, 0.85, 0.85], dtype=np.float32)
+    out = np.empty((structure.n_atoms, 3), dtype=np.float32)
+    for i, resn in enumerate(structure.res_names):
+        q = RESIDUE_CHARGE.get(resn.upper(), 0.0)
+        out[i] = neg if q < 0 else pos if q > 0 else neutral
+    return out
+
+
+def color_by_secondary_structure(structure: Structure) -> np.ndarray:
+    """Color helices/strands/loops distinctly (reusing the cartoon SS heuristic)."""
+    from .geometry.cartoon import assign_chain_ss  # noqa: PLC0415
+
+    ss_color = {
+        "H": np.array([1.0, 0.35, 0.55], dtype=np.float32),  # helix - pink/red
+        "S": np.array([1.0, 0.85, 0.3], dtype=np.float32),   # strand - gold
+        "L": np.array([0.6, 0.85, 0.95], dtype=np.float32),  # loop/coil - light blue
+    }
+    ss_by_res = assign_chain_ss(structure)  # (chain, resid) -> 'H'|'S'|'L'
+    out = np.empty((structure.n_atoms, 3), dtype=np.float32)
+    for i in range(structure.n_atoms):
+        key = (structure.chain_ids[i], int(structure.res_ids[i]))
+        out[i] = ss_color.get(ss_by_res.get(key, "L"), ss_color["L"])
     return out

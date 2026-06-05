@@ -10,7 +10,7 @@ import numpy as np
 from vibemol.commands import Context, dispatch
 from vibemol.io.pdb import parse_pdb_text
 from vibemol.model.scene import Scene
-from vibemol.session import load_session, save_session
+from vibemol.session import dump_session, load_session, load_session_bytes, save_session
 
 
 def test_session_round_trip(tmp_path: Path) -> None:
@@ -36,3 +36,15 @@ def test_session_round_trip(tmp_path: Path) -> None:
     assert loaded.settings["bg_color"] == "#ffffff"
     assert "carbons" in loaded.selections
     assert int(loaded.selections["carbons"]["demo"].sum()) == 6
+
+
+def test_session_bytes_round_trip() -> None:
+    text = resources.files("vibemol.data").joinpath("benzene.pdb").read_text()
+    ctx = Context(Scene())
+    ctx.add_structure(parse_pdb_text(text, name="demo"))
+    dispatch(ctx, "as spheres")
+    data = dump_session(ctx.scene)
+    assert isinstance(data, bytes) and len(data) > 0
+    loaded = load_session_bytes(data)
+    assert list(loaded.objects) == ["demo"]
+    assert loaded.objects["demo"].rep_masks["spheres"].all()
