@@ -1,7 +1,8 @@
 """A PyMOL-style atom-selection language: tokenizer, parser, and evaluator.
 
-A selection string is parsed into a small AST whose nodes evaluate against a
-:class:`~vibemol.model.structure.Structure` to a boolean mask over its atoms.
+A selection string is parsed into a small AST whose nodes evaluate against an
+:class:`EvalContext` (a structure plus any named selections in scope) to a
+boolean mask over the structure's atoms.
 
 Supported in v1:
   * property selectors: ``resn``, ``resi``, ``chain``, ``name``, ``elem``,
@@ -9,6 +10,7 @@ Supported in v1:
     ``>``/``>=`` comparisons)
   * keyword selectors: ``all``, ``none``, ``hydro``/``hydrogens``, ``hetatm``,
     ``polymer``, ``solvent``, ``backbone``, ``sidechain``
+  * **named selections** by name (e.g. ``color red, sele`` or ``mysel and chain A``)
   * ``+``-separated value lists, numeric ranges (``resi 10-20``), and ``*``/``?``
     wildcards (``name C*``)
   * boolean logic: ``and``/``&``, ``or``/``|``, ``not``/``!``, parentheses
@@ -20,7 +22,7 @@ from __future__ import annotations
 
 import fnmatch
 import re
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 
 import numpy as np
 
@@ -29,6 +31,14 @@ from ..model.structure import Structure
 
 class SelectionError(ValueError):
     """Raised when a selection string cannot be parsed or evaluated."""
+
+
+@dataclass
+class EvalContext:
+    """What a selection evaluates against: a structure + named selections in scope."""
+
+    structure: Structure
+    named: dict[str, np.ndarray] = field(default_factory=dict)
 
 
 # --- tokenizer --------------------------------------------------------------
@@ -46,7 +56,6 @@ _KEYWORD_ARG = {  # selectors taking a +-separated value list
     "resn", "resi", "chain", "name", "elem", "element", "index", "id", "ss",
 }
 _COMPARE = {"b", "q"}
-_LOGIC = {"and", "or", "not", "byres", "within", "of", "around", "expand"}
 
 
 @dataclass
@@ -68,27 +77,45 @@ def _tokenize(text: str) -> list[_Tok]:
 
 
 class Node:
-    def eval(self, s: Structure) -> np.ndarray:  # pragma: no cover - interface
+    def eval(self, ctx: EvalContext) -> np.ndarray:  # pragma: no cover - interface
         raise NotImplementedError
 
 
 @dataclass
 class All(Node):
-    def eval(self, s: Structure) -> np.ndarray:
-        return np.ones(s.n_atoms, dtype=bool)
+    def eval(self, ctx: EvalContext) -> np.ndarray:
+        return np.ones(ctx.structure.n_atoms, dtype=bool)
 
 
 @dataclass
 class NoneSel(Node):
-    def eval(self, s: Structure) -> np.ndarray:
-        return np.zeros(s.n_atoms, dtype=bool)
+    def eval(self, ctx: EvalContext) -> np.ndarray:
+        return np.zeros(ctx.structure.n_atoms, dtype=bool)
+
+
+@dataclass
+class NamedSelection(Node):
+    name: str
+
+    def eval(self, ctx: EvalContext) -> np.ndarray:
+        mask = ctx.named.get(self.name)
+        if mask is None:
+            lower = self.name.lower()
+            for key, value in ctx.named.items():
+                if key.lower() == lower:
+                    mask = value
+                    break
+        if mask is None:
+            return np.zeros(ctx.structure.n_atoms, dtype=bool)
+        return mask.copy()
 
 
 @dataclass
 class Keyword(Node):
     name: str
 
-    def eval(self, s: Structure) -> np.ndarray:
+    def eval(self, ctx: EvalContext) -> np.ndarray:
+        s = ctx.structure
         elems = np.array(s.elements)
         if self.name in ("hydro", "hydrogens"):
             return elems == "H"
@@ -113,7 +140,8 @@ class ListSelector(Node):
     field: str
     values: list[str]
 
-    def eval(self, s: Structure) -> np.ndarray:
+    def eval(self, ctx: EvalContext) -> np.ndarray:
+        s = ctx.structure
         if self.field in ("resi", "index", "id"):
             return self._eval_numeric(s)
         return self._eval_string(s)
@@ -162,8 +190,8 @@ class Compare(Node):
     op: str
     value: float
 
-    def eval(self, s: Structure) -> np.ndarray:
-        col = s.b_factors if self.field == "b" else s.occupancies
+    def eval(self, ctx: EvalContext) -> np.ndarray:
+        col = ctx.structure.b_factors if self.field == "b" else ctx.structure.occupancies
         if self.op in ("=", "=="):
             return col == self.value
         if self.op == "<":
@@ -179,8 +207,8 @@ class Compare(Node):
 class Not(Node):
     child: Node
 
-    def eval(self, s: Structure) -> np.ndarray:
-        return ~self.child.eval(s)
+    def eval(self, ctx: EvalContext) -> np.ndarray:
+        return ~self.child.eval(ctx)
 
 
 @dataclass
@@ -188,8 +216,8 @@ class And(Node):
     left: Node
     right: Node
 
-    def eval(self, s: Structure) -> np.ndarray:
-        return self.left.eval(s) & self.right.eval(s)
+    def eval(self, ctx: EvalContext) -> np.ndarray:
+        return self.left.eval(ctx) & self.right.eval(ctx)
 
 
 @dataclass
@@ -197,17 +225,17 @@ class Or(Node):
     left: Node
     right: Node
 
-    def eval(self, s: Structure) -> np.ndarray:
-        return self.left.eval(s) | self.right.eval(s)
+    def eval(self, ctx: EvalContext) -> np.ndarray:
+        return self.left.eval(ctx) | self.right.eval(ctx)
 
 
 @dataclass
 class ByRes(Node):
     child: Node
 
-    def eval(self, s: Structure) -> np.ndarray:
-        mask = self.child.eval(s)
-        labels = s.residue_labels()
+    def eval(self, ctx: EvalContext) -> np.ndarray:
+        mask = self.child.eval(ctx)
+        labels = ctx.structure.residue_labels()
         hit = np.unique(labels[mask])
         return np.isin(labels, hit)
 
@@ -218,9 +246,10 @@ class Within(Node):
     child: Node
     exclude_self: bool = False  # True for `around`
 
-    def eval(self, s: Structure) -> np.ndarray:
-        ref_mask = self.child.eval(s)
-        near = _within_mask(s.coords, s.coords[ref_mask], self.distance)
+    def eval(self, ctx: EvalContext) -> np.ndarray:
+        coords = ctx.structure.coords
+        ref_mask = self.child.eval(ctx)
+        near = _within_mask(coords, coords[ref_mask], self.distance)
         if self.exclude_self:
             near &= ~ref_mask
         return near
@@ -245,9 +274,11 @@ def _within_mask(coords: np.ndarray, ref: np.ndarray, dist: float) -> np.ndarray
 
 
 class _Parser:
-    def __init__(self, toks: list[_Tok]):
+    def __init__(self, toks: list[_Tok], names: frozenset[str]):
         self.toks = toks
         self.i = 0
+        self.names = names
+        self._names_lower = {n.lower() for n in names}
 
     def _peek(self) -> _Tok | None:
         return self.toks[self.i] if self.i < len(self.toks) else None
@@ -345,8 +376,10 @@ class _Parser:
             arg = self._peek()
             if not arg or arg.kind != "word":
                 raise SelectionError(f"expected value(s) after {lw!r}")
-            field = "elem" if lw == "element" else lw
-            return ListSelector(field, self._next().value.split("+"))
+            sel_field = "elem" if lw == "element" else lw
+            return ListSelector(sel_field, self._next().value.split("+"))
+        if lw in self._names_lower:  # a named selection in scope
+            return NamedSelection(word)
         raise SelectionError(f"unknown selector: {word!r}")
 
     def _number(self) -> float:
@@ -359,14 +392,27 @@ class _Parser:
             raise SelectionError(f"expected a number, got {tok.value!r}") from e
 
 
-def parse(text: str) -> Node:
-    """Parse a selection string into an AST (raises :class:`SelectionError`)."""
+def parse(text: str, names: frozenset[str] = frozenset()) -> Node:
+    """Parse a selection string into an AST (raises :class:`SelectionError`).
+
+    ``names`` are named selections in scope, so they can be referenced by name.
+    """
     toks = _tokenize(text)
     if not toks:
         return All()
-    return _Parser(toks).parse()
+    return _Parser(toks, names).parse()
 
 
-def select(structure: Structure, expression: str) -> np.ndarray:
-    """Evaluate a selection expression to a boolean mask over ``structure``."""
-    return parse(expression).eval(structure)
+def select(
+    structure: Structure,
+    expression: str,
+    named: dict[str, np.ndarray] | None = None,
+) -> np.ndarray:
+    """Evaluate a selection expression to a boolean mask over ``structure``.
+
+    ``named`` maps selection names to boolean masks (over this structure) so
+    expressions like ``color red, sele`` or ``mysel and chain A`` resolve.
+    """
+    named = named or {}
+    node = parse(expression, frozenset(named))
+    return node.eval(EvalContext(structure, named))

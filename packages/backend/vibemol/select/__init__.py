@@ -5,6 +5,6 @@ Selection v1: ``resn/resi/chain/name/elem/index/id/b/q``, ranges, wildcards,
 the NumPy atom arrays in :mod:`vibemol.model`.
 """
 
-from .engine import SelectionError, parse, select
+from .engine import EvalContext, SelectionError, parse, select
 
-__all__ = ["select", "parse", "SelectionError"]
+__all__ = ["select", "parse", "SelectionError", "EvalContext"]

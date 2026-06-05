@@ -94,12 +94,25 @@
       .vm-input:focus { border-color: var(--accent); }
       .vm-hint { color: var(--dim); font-size: 11px; margin-top: 8px; }
 
+      /* apply-to target chip */
+      .vm-apply { display: flex; align-items: center; gap: 8px; margin-bottom: 9px; }
+      .vm-apply-label { color: var(--dim); font-size: 11px; }
+      .vm-chip { font-size: 11px; padding: 3px 9px; border-radius: 999px; cursor: pointer;
+        background: #1a212a; border: 1px solid var(--border); color: var(--dim); }
+      .vm-chip.set { background: rgba(255,92,200,0.16); border-color: var(--accent-2);
+        color: #ffc4ec; }
+      .vm-chip.set::after { content: " ✕"; opacity: 0.7; }
+
       /* lists (objects / selections) */
       .vm-list { display: flex; flex-direction: column; gap: 4px; }
-      .vm-row { display: flex; justify-content: space-between; align-items: center; gap: 8px;
+      .vm-row { display: flex; justify-content: space-between; align-items: center; gap: 6px;
         padding: 5px 8px; border-radius: 7px; background: rgba(255,255,255,0.02); }
       .vm-row:hover { background: rgba(255,255,255,0.05); }
+      .vm-row.active { background: rgba(255,92,200,0.14); box-shadow: inset 0 0 0 1px var(--accent-2); }
+      .vm-sel .name { cursor: pointer; flex: 1; }
       .vm-row .name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+      .vm-rename { flex: 1; min-width: 0; background: #0c1014; color: var(--fg);
+        border: 1px solid var(--accent); border-radius: 5px; padding: 2px 6px; font: inherit; outline: none; }
       .vm-row .meta { color: var(--dim); font-size: 11px; }
       .vm-x { background: none; border: none; color: var(--dim); padding: 0 2px; }
       .vm-x:hover { color: #ff6b6b; }

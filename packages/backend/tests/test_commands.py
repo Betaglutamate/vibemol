@@ -67,6 +67,32 @@ def test_select_and_delete_selection() -> None:
     assert "carbons" not in ctx.scene.selections
 
 
+def test_color_a_named_selection() -> None:
+    ctx = ctx_with_demo()
+    dispatch(ctx, "select ring, elem C")
+    dispatch(ctx, "color blue, ring")  # reference the named selection by name
+    carbons = np.array([e == "C" for e in obj(ctx).structure.elements])
+    assert np.allclose(obj(ctx).colors[carbons], (0.36, 0.36, 1.0))
+
+
+def test_set_name_renames_selection() -> None:
+    ctx = ctx_with_demo()
+    dispatch(ctx, "select ring, elem C")
+    res = dispatch(ctx, "set_name ring, core")
+    assert res.selections_changed
+    assert "core" in ctx.scene.selections and "ring" not in ctx.scene.selections
+    # The renamed selection is still referenceable.
+    dispatch(ctx, "color red, core")
+    with pytest.raises(CommandError):
+        dispatch(ctx, "set_name nonexistent, x")
+
+
+def test_set_name_renames_object() -> None:
+    ctx = ctx_with_demo()
+    dispatch(ctx, "set_name demo, benzene")
+    assert "benzene" in ctx.scene.objects and "demo" not in ctx.scene.objects
+
+
 def test_bg_color_and_set() -> None:
     ctx = ctx_with_demo()
     dispatch(ctx, "bg_color white")

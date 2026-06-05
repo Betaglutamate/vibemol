@@ -55,9 +55,17 @@ export class UI {
   private trajEl!: HTMLDivElement;
   private trajSlider!: HTMLInputElement;
   private trajLabel!: HTMLSpanElement;
+  private targetChip!: HTMLSpanElement;
   private nStates = 1;
   private playing = false;
   private playTimer: number | null = null;
+
+  // The active selection that Representation/Color controls act on (null = all).
+  private target: string | null = null;
+  private lastScene: DecodedScene | null = null;
+  // Console command history (newest last); historyIdx walks it with ↑/↓.
+  private history: string[] = [];
+  private historyIdx = 0;
 
   constructor(private readonly handlers: UIHandlers) {
     document.body.append(
@@ -117,26 +125,29 @@ export class UI {
       el("div", { className: "vm-hint", textContent: "or drag & drop a .pdb / .cif / .sdf / .xyz file" }),
     );
 
+    // "Apply to" target chip — clicking it clears back to the whole structure.
+    this.targetChip = el("span", { className: "vm-chip", textContent: "all" });
+    this.targetChip.onclick = () => this.setTarget(null);
+    const applyBar = el("div", { className: "vm-apply" }, [
+      el("span", { className: "vm-apply-label", textContent: "Apply to" }), this.targetChip,
+    ]);
+
     const repGrid = el(
       "div",
       { className: "vm-grid" },
       REPS.map(([kind, label]) =>
-        el("button", { className: "vm-btn vm-rep", onclick: () => this.handlers.onCommand(`as ${kind}`) }, [
+        el("button", { className: "vm-btn vm-rep", onclick: () => this.applyRep(kind) }, [
           el("i"), el("span", { textContent: label }),
         ]),
       ),
     );
-    const representation = section("Representation", repGrid);
+    const representation = section("Representation", applyBar, repGrid);
 
     const swatches = el(
       "div",
       { className: "vm-swatches" },
       SWATCHES.map(([name, hex]) => {
-        const sw = el("div", {
-          className: "vm-swatch",
-          title: name,
-          onclick: () => this.handlers.onCommand(`color ${name}`),
-        });
+        const sw = el("div", { className: "vm-swatch", title: name, onclick: () => this.applyColor(name) });
         sw.style.background = hex;
         return sw;
       }),
@@ -145,7 +156,7 @@ export class UI {
       "div",
       { className: "vm-schemes" },
       SCHEMES.map(([scheme, label]) =>
-        el("button", { className: "vm-btn", textContent: label, onclick: () => this.handlers.onCommand(`color ${scheme}`) }),
+        el("button", { className: "vm-btn", textContent: label, onclick: () => this.applyColor(scheme) }),
       ),
     );
     const color = section("Color", swatches, schemes);
@@ -198,8 +209,27 @@ export class UI {
     });
     input.addEventListener("keydown", (e) => {
       if (e.key === "Enter" && input.value.trim()) {
-        this.handlers.onCommand(input.value.trim());
+        const cmd = input.value.trim();
+        this.handlers.onCommand(cmd);
+        if (this.history[this.history.length - 1] !== cmd) this.history.push(cmd);
+        this.historyIdx = this.history.length;
         input.value = "";
+      } else if (e.key === "ArrowUp") {
+        e.preventDefault();
+        if (this.historyIdx > 0) {
+          this.historyIdx--;
+          input.value = this.history[this.historyIdx];
+          input.setSelectionRange(input.value.length, input.value.length);
+        }
+      } else if (e.key === "ArrowDown") {
+        e.preventDefault();
+        if (this.historyIdx < this.history.length - 1) {
+          this.historyIdx++;
+          input.value = this.history[this.historyIdx];
+        } else {
+          this.historyIdx = this.history.length;
+          input.value = "";
+        }
       }
     });
     const consoleRow = el("div", { className: "vm-console-row" }, [
@@ -217,6 +247,9 @@ export class UI {
   }
 
   renderScene(scene: DecodedScene): void {
+    this.lastScene = scene;
+    // Clear a stale target if its selection no longer exists.
+    if (this.target && !scene.selections.includes(this.target)) this.setTarget(null, false);
     this.nStates = scene.nStates;
     if (scene.nStates > 1) {
       this.trajEl.style.display = "flex";
@@ -245,21 +278,82 @@ export class UI {
         : [el("div", { className: "vm-empty", textContent: "Load a structure to begin" })]),
     );
 
+    this.renderSelections(scene);
+    this.renderSequence(scene);
+  }
+
+  // ---- selection management ----
+
+  private targetSuffix(): string {
+    return this.target ? `, ${this.target}` : "";
+  }
+
+  private applyRep(kind: string): void {
+    this.handlers.onCommand(`as ${kind}${this.targetSuffix()}`);
+  }
+
+  private applyColor(spec: string): void {
+    this.handlers.onCommand(`color ${spec}${this.targetSuffix()}`);
+  }
+
+  private setTarget(name: string | null, refresh = true): void {
+    this.target = this.target === name ? null : name; // clicking the active one clears it
+    this.targetChip.textContent = this.target ?? "all";
+    this.targetChip.classList.toggle("set", this.target != null);
+    if (refresh && this.lastScene) this.renderSelections(this.lastScene);
+  }
+
+  private renderSelections(scene: DecodedScene): void {
     this.selectionsEl.replaceChildren(
       ...(scene.selections.length
-        ? scene.selections.map((name) =>
-            el("div", { className: "vm-row" }, [
-              el("span", { className: "name", textContent: name }),
-              el("button", {
-                className: "vm-x", textContent: "✕",
-                onclick: () => this.handlers.onCommand(`deselect ${name}`),
-              }),
-            ]),
-          )
-        : [el("div", { className: "vm-empty", textContent: "none" })]),
+        ? scene.selections.map((name) => this.selectionRow(name))
+        : [el("div", { className: "vm-empty", textContent: "Pick an atom or run select" })]),
     );
+  }
 
-    this.renderSequence(scene);
+  private selectionRow(name: string): HTMLElement {
+    const active = this.target === name;
+    const nameEl = el("span", {
+      className: "name",
+      textContent: name,
+      title: "click to target with Representation/Color",
+      onclick: () => this.setTarget(name),
+    });
+    const renameBtn = el("button", {
+      className: "vm-x", textContent: "✎", title: "rename",
+      onclick: () => this.beginRename(name, nameEl),
+    });
+    const deleteBtn = el("button", {
+      className: "vm-x", textContent: "✕", title: "delete",
+      onclick: () => this.handlers.onCommand(`deselect ${name}`),
+    });
+    return el("div", { className: "vm-row vm-sel" + (active ? " active" : "") }, [
+      nameEl, renameBtn, deleteBtn,
+    ]);
+  }
+
+  private beginRename(oldName: string, nameEl: HTMLElement): void {
+    const input = el("input", { className: "vm-rename", value: oldName });
+    nameEl.replaceWith(input);
+    input.focus();
+    input.select();
+    let done = false; // Enter, Escape, and blur can all fire — commit at most once.
+    const finish = (apply: boolean) => {
+      if (done) return;
+      done = true;
+      const next = input.value.trim();
+      if (apply && next && next !== oldName) {
+        if (this.target === oldName) this.setTarget(next, false);
+        this.handlers.onCommand(`set_name ${oldName}, ${next}`);
+      } else if (this.lastScene) {
+        this.renderSelections(this.lastScene); // cancel -> restore the row
+      }
+    };
+    input.addEventListener("keydown", (e) => {
+      if (e.key === "Enter") finish(true);
+      else if (e.key === "Escape") finish(false);
+    });
+    input.addEventListener("blur", () => finish(true));
   }
 
   private renderSequence(scene: DecodedScene): void {

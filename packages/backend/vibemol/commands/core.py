@@ -147,6 +147,34 @@ def cmd_select(ctx: Context, args: list[str]) -> CommandResult:
     )
 
 
+@command("set_name", "rename")
+def cmd_set_name(ctx: Context, args: list[str]) -> CommandResult:
+    if len(args) < 2 or not args[0] or not args[1]:
+        raise CommandError("usage: set_name <old>, <new>")
+    old, new = args[0].strip(), args[1].strip()
+    if new in ctx.scene.objects or new in ctx.scene.selections:
+        raise CommandError(f"name already in use: {new!r}")
+
+    if old in ctx.scene.selections:
+        ctx.scene.selections[new] = ctx.scene.selections.pop(old)
+        return CommandResult(
+            log=f"renamed selection '{old}' -> '{new}'",
+            scene_changed=False,
+            selections_changed=True,
+        )
+    if old in ctx.scene.objects:
+        obj = ctx.scene.objects[old]
+        obj.name = new
+        obj.structure.name = new
+        # Rebuild the ordered dict, preserving position; remap selection masks.
+        ctx.scene.objects = {(new if k == old else k): v for k, v in ctx.scene.objects.items()}
+        for masks in ctx.scene.selections.values():
+            if old in masks:
+                masks[new] = masks.pop(old)
+        return CommandResult(log=f"renamed object '{old}' -> '{new}'")
+    raise CommandError(f"no such object or selection: {old!r}")
+
+
 @command("deselect")
 def cmd_deselect(ctx: Context, args: list[str]) -> CommandResult:
     name = args[0] if args and args[0] else "sele"

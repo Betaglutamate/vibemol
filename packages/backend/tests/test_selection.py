@@ -81,3 +81,15 @@ def test_selection_counts(expr: str, expected: int) -> None:
 def test_selection_errors(expr: str) -> None:
     with pytest.raises(SelectionError):
         select(fixture(), expr)
+
+
+def test_named_selection_reference() -> None:
+    s = fixture()
+    # A named selection in scope can be referenced by name and combined.
+    named = {"sele": select(s, "elem O")}
+    assert int(select(s, "sele", named).sum()) == 3
+    assert int(select(s, "sele and chain A", named).sum()) == 2
+    assert int(select(s, "not sele", named).sum()) == 7
+    # An unknown bareword (no such named selection) is still an error.
+    with pytest.raises(SelectionError):
+        select(s, "nope", {"sele": named["sele"]})

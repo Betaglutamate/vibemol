@@ -47,11 +47,19 @@ class Context:
         return self.scene.add_object(MolObject(name=unique, structure=structure))
 
     def resolve(self, expression: str) -> dict[str, np.ndarray]:
-        """Evaluate a selection expression against every object's atoms."""
-        return {
-            name: select(obj.structure, expression)
-            for name, obj in self.scene.objects.items()
-        }
+        """Evaluate a selection expression against every object's atoms.
+
+        Named selections in scope are passed in per object so expressions can
+        reference them (e.g. ``color red, sele``)."""
+        out: dict[str, np.ndarray] = {}
+        for name, obj in self.scene.objects.items():
+            named = {
+                sel: masks[name]
+                for sel, masks in self.scene.selections.items()
+                if name in masks
+            }
+            out[name] = select(obj.structure, expression, named)
+        return out
 
     def selected_coords(self, expression: str) -> np.ndarray:
         """Concatenated coordinates of all atoms matching ``expression``."""
