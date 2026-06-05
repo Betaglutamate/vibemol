@@ -14,9 +14,10 @@ _SUFFIX_FORMAT = {
     ".xyz": "xyz",
     ".sdf": "sdf", ".mol": "sdf",
     ".mol2": "mol2",
+    ".smi": "smiles", ".smiles": "smiles",
 }
 
-SUPPORTED_FORMATS = ("pdb", "mmcif", "xyz", "sdf", "mol2")
+SUPPORTED_FORMATS = ("pdb", "mmcif", "xyz", "sdf", "mol2", "smiles")
 
 
 def load_text(text: str, fmt: str, name: str = "structure") -> Structure:
@@ -38,6 +39,10 @@ def load_text(text: str, fmt: str, name: str = "structure") -> Structure:
         from .science import parse_mol2_text  # noqa: PLC0415
 
         return parse_mol2_text(text, name=name)
+    if fmt in ("smiles", "smi"):
+        from .science import parse_smiles_text  # noqa: PLC0415
+
+        return parse_smiles_text(text, name=name)
     raise ValueError(f"unsupported format: {fmt!r} (supported: {', '.join(SUPPORTED_FORMATS)})")
 
 

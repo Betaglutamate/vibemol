@@ -17,6 +17,7 @@ export interface UIHandlers {
   onSaveSession: () => void;
   onOpenSession: (file: File) => void;
   onExportStructure: () => void;
+  onSmiles: (smiles: string, name: string) => void;
 }
 
 const REPS: [string, string][] = [
@@ -36,7 +37,7 @@ const COLOR_SCHEMES: [string, string][] = [
 ];
 const MEASURE_COUNT: Record<string, number> = { distance: 2, angle: 3, dihedral: 4 };
 
-const FILE_ACCEPT = ".pdb,.ent,.cif,.mmcif,.sdf,.mol,.mol2,.xyz";
+const FILE_ACCEPT = ".pdb,.ent,.cif,.mmcif,.sdf,.mol,.mol2,.xyz,.smi,.smiles";
 
 /** The app-shell UI: a menu bar + slim quick-access toolbar, right data panel,
  *  and bottom dock (console + trajectory). */
@@ -117,6 +118,7 @@ export class UI {
         items: [
           { kind: "action", label: "Open Demo", run: this.handlers.onDemo },
           { kind: "action", label: "Fetch from PDB…", run: () => this.fetchDialog() },
+          { kind: "action", label: "From SMILES…", run: () => this.smilesDialog() },
           { kind: "action", label: "Open File…", run: () => this.openFileDialog(FILE_ACCEPT, this.handlers.onFile) },
           { kind: "separator" },
           { kind: "action", label: "Open Session…", run: () => this.openFileDialog(".vibe", this.handlers.onOpenSession) },
@@ -209,6 +211,14 @@ export class UI {
   private async fetchDialog(): Promise<void> {
     const v = await openDialog("Fetch from PDB", [{ name: "id", label: "PDB id", placeholder: "1ubq" }], "Fetch");
     if (v?.id) this.handlers.onCommand(`fetch ${v.id}`);
+  }
+
+  private async smilesDialog(): Promise<void> {
+    const v = await openDialog("Build from SMILES", [
+      { name: "smiles", label: "SMILES", placeholder: "CC(=O)Oc1ccccc1C(=O)O" },
+      { name: "name", label: "Name", value: "ligand" },
+    ], "Build");
+    if (v?.smiles) this.handlers.onSmiles(v.smiles, v.name || "ligand");
   }
 
   private async interfaceDialog(): Promise<void> {

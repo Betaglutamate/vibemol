@@ -47,15 +47,15 @@ class MolObject:
             self.colors = self.structure.cpk_colors_rgb()
 
     def apply_default_representation(self) -> None:
-        """PyMOL-like default: cartoon for proteins; otherwise lines for bonded
-        atoms with nonbonded points for the rest."""
-        from ..geometry.cartoon import has_protein_backbone  # noqa: PLC0415
+        """PyMOL-like default: cartoon for proteins/nucleic acids; otherwise lines
+        for bonded atoms with nonbonded points for the rest."""
+        from ..geometry.cartoon import has_cartoon_backbone  # noqa: PLC0415
 
         n = self.structure.n_atoms
         bonded = np.zeros(n, dtype=bool)
         if self.structure.n_bonds:
             bonded[self.structure.bonds.reshape(-1)] = True
-        if has_protein_backbone(self.structure):
+        if has_cartoon_backbone(self.structure):
             self.rep_masks["cartoon"] = np.ones(n, dtype=bool)
         else:
             self.rep_masks["lines"] = bonded.copy()

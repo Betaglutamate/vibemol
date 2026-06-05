@@ -7,6 +7,8 @@ an actionable message when the extra is not installed, so callers can fall back
 
 from __future__ import annotations
 
+from typing import Any
+
 import numpy as np
 
 from ..model.bonds import infer_bonds
@@ -16,15 +18,39 @@ _HINT = "install the science extra: pip install 'vibemol[science]'"
 
 
 def parse_mmcif_text(text: str, name: str = "structure") -> Structure:
-    """Parse mmCIF text into a Structure using Gemmi (first model only)."""
+    """Parse mmCIF text into a Structure by reading the ``_atom_site`` loop with
+    Gemmi's CIF tokenizer (first model only). Reading the columns directly is
+    robust across gemmi versions and handles minimal/non-standard blocks."""
     try:
         import gemmi  # noqa: PLC0415
     except ImportError as e:  # pragma: no cover - depends on optional extra
         raise ImportError(f"mmCIF parsing needs Gemmi; {_HINT}") from e
 
     block = gemmi.cif.read_string(text).sole_block()
-    st = gemmi.make_structure_from_block(block)
-    st.setup_entities()
+
+    def col(tag: str) -> list[str]:
+        return list(block.find_loop(f"_atom_site.{tag}"))
+
+    xs, ys, zs = col("Cartn_x"), col("Cartn_y"), col("Cartn_z")
+    n = len(xs)
+    if n == 0:
+        raise ValueError("mmCIF has no _atom_site coordinates")
+    symbols = col("type_symbol")
+    names = col("label_atom_id")
+    comps = col("label_comp_id")
+    chains = col("auth_asym_id") or col("label_asym_id")
+    seqs = col("auth_seq_id") or col("label_seq_id")
+    occs = col("occupancy")
+    bfac = col("B_iso_or_equiv")
+    groups = col("group_PDB")
+    models = col("pdbx_PDB_model_num")
+    first_model = models[0] if models else None
+
+    def num(values: list[str], i: int, default: float) -> float:
+        try:
+            return float(values[i])
+        except (ValueError, IndexError):
+            return default
 
     elements: list[str] = []
     coords: list[tuple[float, float, float]] = []
@@ -36,20 +62,18 @@ def parse_mmcif_text(text: str, name: str = "structure") -> Structure:
     occupancies: list[float] = []
     is_hetatm: list[bool] = []
 
-    model = st[0]
-    for chain in model:
-        for res in chain:
-            het = res.het_flag == "H"
-            for atom in res:
-                elements.append(atom.element.name.upper())
-                coords.append((atom.pos.x, atom.pos.y, atom.pos.z))
-                atom_names.append(atom.name)
-                res_names.append(res.name)
-                res_ids.append(res.seqid.num)
-                chain_ids.append(chain.name)
-                b_factors.append(atom.b_iso)
-                occupancies.append(atom.occ)
-                is_hetatm.append(het)
+    for i in range(n):
+        if first_model is not None and models[i] != first_model:
+            continue  # first model only
+        elements.append((symbols[i] if i < len(symbols) else "C").upper())
+        coords.append((float(xs[i]), float(ys[i]), float(zs[i])))
+        atom_names.append(names[i] if i < len(names) else "")
+        res_names.append(comps[i] if i < len(comps) else "UNL")
+        res_ids.append(int(num(seqs, i, 0)))
+        chain_ids.append(chains[i] if i < len(chains) else "A")
+        b_factors.append(num(bfac, i, 0.0))
+        occupancies.append(num(occs, i, 1.0))
+        is_hetatm.append(i < len(groups) and groups[i] == "HETATM")
 
     coords_arr = np.array(coords, dtype=np.float32).reshape(-1, 3)
     return Structure(
@@ -126,4 +150,33 @@ def parse_mol2_text(text: str, name: str = "structure") -> Structure:
     mol = Chem.MolFromMol2Block(text, removeHs=False)
     if mol is None:
         raise ValueError("RDKit could not parse the MOL2 block")
+    return _structure_from_rdkit(mol, name)
+
+
+def parse_smiles_text(text: str, name: str = "ligand") -> Structure:
+    """Parse a SMILES string and generate a 3D conformer (RDKit ETKDG + MMFF).
+
+    SMILES carries no coordinates, so we add hydrogens, embed a 3D conformer, and
+    energy-minimize it. The first whitespace-separated token is taken as the SMILES.
+    """
+    try:
+        from rdkit import Chem  # noqa: PLC0415
+        from rdkit.Chem import AllChem  # noqa: PLC0415
+    except ImportError as e:  # pragma: no cover - depends on optional extra
+        raise ImportError(f"SMILES parsing needs RDKit; {_HINT}") from e
+
+    smiles = text.strip().split()[0] if text.strip() else ""
+    mol = Chem.MolFromSmiles(smiles)
+    if mol is None:
+        raise ValueError(f"RDKit could not parse SMILES: {smiles!r}")
+    mol = Chem.AddHs(mol)
+    # AllChem's coordinate-embedding API is dynamically populated; treat as Any so
+    # type-checking is consistent whether or not RDKit is installed.
+    ac: Any = AllChem
+    if ac.EmbedMolecule(mol, ac.ETKDGv3()) != 0:
+        ac.EmbedMolecule(mol, useRandomCoords=True)  # fallback for tricky graphs
+    try:
+        ac.MMFFOptimizeMolecule(mol)
+    except Exception:  # noqa: BLE001 - optimization is best-effort
+        pass
     return _structure_from_rdkit(mol, name)

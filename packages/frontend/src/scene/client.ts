@@ -9,6 +9,7 @@ import { appStore } from "./store";
 const EXT_FORMAT: Record<string, string> = {
   pdb: "pdb", ent: "pdb", cif: "mmcif", mmcif: "mmcif",
   xyz: "xyz", sdf: "sdf", mol: "sdf", mol2: "mol2",
+  smi: "smiles", smiles: "smiles",
 };
 
 export function formatFromFilename(name: string): string | null {

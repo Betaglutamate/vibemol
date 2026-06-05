@@ -1,13 +1,14 @@
-"""Cartoon representation: a smooth ribbon/tube through the protein backbone.
+"""Cartoon representation: a smooth ribbon/tube through a polymer backbone.
 
-Pipeline: group atoms into residues per chain, take the CA trace, assign a
-secondary structure (a geometric heuristic over CA-CA distances — full DSSP is a
-later refinement), interpolate a Catmull-Rom spline through the CA atoms, build a
-parallel-transport frame along it, and sweep an elliptical cross-section whose
-shape depends on SS (round tube for loops, flat ribbon for helices/strands).
+Works for **proteins** (CA trace, with helix/strand/loop secondary structure) and
+**nucleic acids** (DNA/RNA — phosphate/sugar trace, drawn as a rounded tube).
+Pipeline: group atoms into residues per chain, pick each residue's trace atom,
+assign secondary structure (a geometric CA-CA heuristic for proteins; nucleic
+acids are all "loop"), interpolate a Catmull-Rom spline, build a
+parallel-transport frame, and sweep an elliptical cross-section.
 
 Output is a single triangle ``mesh`` draw group (positions, normals, colors,
-indices). Per-residue colors come from each residue's CA atom color.
+indices). Per-residue colors come from each residue's trace-atom color.
 """
 
 from __future__ import annotations
@@ -26,47 +27,65 @@ _CROSS_SECTION_POINTS = 8
 _SS_SHAPE = {
     "L": (0.28, 0.28),   # coil/loop: round tube
     "H": (1.30, 0.32),   # helix: wide flat ribbon
-    "S": (1.10, 0.32),   # strand: flat ribbon (arrowheads are a later refinement)
+    "S": (1.10, 0.32),   # strand: flat ribbon
 }
+_NUCLEIC_SHAPE = (0.75, 0.75)  # DNA/RNA backbone: a fat rounded tube
+# Trace-atom preference for nucleic-acid residues (5'-terminal residues lack P).
+_NUCLEIC_TRACE = ("P", "C3'", "C4'", "C1'", "O5'")
 
 
-def _chain_residue_traces(structure: Structure, mask: np.ndarray) -> list[list[int]]:
-    """Yield (ca_indices, colors_index_list) runs of in-mask residues per chain.
+def _residue_trace_atoms(structure: Structure) -> list[tuple[tuple[str, int], int, bool]]:
+    """Per residue (in order): ((chain, resid), trace_atom_index, is_protein).
 
-    Residues are ordered by first appearance; a residue is included when its CA
-    atom is in ``mask``. Each contiguous run within a chain becomes one ribbon.
+    Protein residues trace through CA; nucleic-acid residues through the
+    phosphate/sugar backbone. Residues with no usable trace atom are skipped.
     """
-    # Build ordered residues: (chain, resid) -> CA atom index.
     order: list[tuple[str, int]] = []
-    ca_of: dict[tuple[str, int], int] = {}
-    for i, name in enumerate(structure.atom_names):
-        if name.upper() != "CA" or structure.elements[i] != "C":
-            continue
+    by_res: dict[tuple[str, int], dict[str, int]] = {}
+    for i, raw in enumerate(structure.atom_names):
         key = (structure.chain_ids[i], int(structure.res_ids[i]))
-        if key not in ca_of:
-            ca_of[key] = i
+        names = by_res.get(key)
+        if names is None:
+            names = by_res[key] = {}
             order.append(key)
+        nm = raw.upper()
+        if nm not in names:
+            names[nm] = i
 
-    # Split into per-chain contiguous runs of in-mask residues.
-    runs: list[list[int]] = []
-    current: list[int] = []
-    prev_chain: str | None = None
+    traces: list[tuple[tuple[str, int], int, bool]] = []
     for key in order:
-        ca = ca_of[key]
-        same_chain = key[0] == prev_chain
-        if mask[ca] and same_chain:
-            current.append(ca)
-        elif mask[ca]:
-            if len(current) >= 2:
-                runs.append(current)
-            current = [ca]
+        names = by_res[key]
+        if "CA" in names and structure.elements[names["CA"]] == "C":
+            traces.append((key, names["CA"], True))
+            continue
+        for nm in _NUCLEIC_TRACE:
+            if nm in names:
+                traces.append((key, names[nm], False))
+                break
+    return traces
+
+
+def _chain_residue_traces(structure: Structure, mask: np.ndarray) -> list[tuple[list[int], bool]]:
+    """Contiguous runs of in-mask residues per chain, as (trace_indices, is_protein).
+
+    A run breaks at a chain change, a polymer-type change, or a gap in the mask.
+    """
+    runs: list[tuple[list[int], bool]] = []
+    current: list[int] = []
+    cur_chain: str | None = None
+    cur_protein: bool | None = None
+    for (chain, _resid), idx, is_protein in _residue_trace_atoms(structure):
+        if mask[idx] and chain == cur_chain and is_protein == cur_protein:
+            current.append(idx)
+            continue
+        if len(current) >= 2:
+            runs.append((current, bool(cur_protein)))
+        if mask[idx]:
+            current, cur_chain, cur_protein = [idx], chain, is_protein
         else:
-            if len(current) >= 2:
-                runs.append(current)
-            current = []
-        prev_chain = key[0]
+            current, cur_chain, cur_protein = [], chain, None
     if len(current) >= 2:
-        runs.append(current)
+        runs.append((current, bool(cur_protein)))
     return runs
 
 
@@ -131,9 +150,14 @@ def assign_chain_ss(structure: Structure) -> dict[tuple[str, int], str]:
     return out
 
 
-def _residue_shapes(ss: list[str]) -> tuple[np.ndarray, np.ndarray]:
-    """Per-residue ribbon (width, thickness); strand runs flare into an arrowhead."""
+def _residue_shapes(ss: list[str], is_protein: bool = True) -> tuple[np.ndarray, np.ndarray]:
+    """Per-residue ribbon (width, thickness); strand runs flare into an arrowhead.
+
+    Nucleic-acid runs use a uniform rounded tube (no secondary structure)."""
     n = len(ss)
+    if not is_protein:
+        w, h = _NUCLEIC_SHAPE
+        return np.full(n, w, dtype=np.float32), np.full(n, h, dtype=np.float32)
     width = np.empty(n, dtype=np.float32)
     thick = np.empty(n, dtype=np.float32)
     for i, s in enumerate(ss):
@@ -206,7 +230,7 @@ def _frames(samples: np.ndarray) -> tuple[np.ndarray, np.ndarray]:
 def build_cartoon_mesh(
     structure: Structure, mask: np.ndarray, colors: np.ndarray
 ) -> dict[str, Any] | None:
-    """Build the cartoon mesh draw group, or None when there is no protein trace."""
+    """Build the cartoon mesh draw group, or None when there is no backbone trace."""
     runs = _chain_residue_traces(structure, mask)
     if not runs:
         return None
@@ -220,11 +244,11 @@ def build_cartoon_mesh(
     angles = np.linspace(0, 2 * np.pi, m, endpoint=False)
     cos_a, sin_a = np.cos(angles), np.sin(angles)
 
-    for ca_idx in runs:
+    for ca_idx, is_protein in runs:
         ca = structure.coords[np.array(ca_idx)]
         res_colors = colors[np.array(ca_idx)]
-        ss = _assign_ss(ca)
-        width_res, thick_res = _residue_shapes(ss)
+        ss = _assign_ss(ca) if is_protein else ["L"] * len(ca_idx)
+        width_res, thick_res = _residue_shapes(ss, is_protein)
         samples, frac = _catmull_rom(ca, _SAMPLES_PER_SEGMENT)
         normals, binormals = _frames(samples)
         n_samples = samples.shape[0]
@@ -281,3 +305,10 @@ def has_protein_backbone(structure: Structure) -> bool:
             if len(seen) >= 2:
                 return True
     return False
+
+
+def has_cartoon_backbone(structure: Structure) -> bool:
+    """True when a cartoon can be drawn — a protein *or* nucleic-acid trace of >= 2 residues."""
+    protein = sum(1 for _k, _i, p in _residue_trace_atoms(structure) if p)
+    total = len(_residue_trace_atoms(structure))
+    return protein >= 2 or (total - protein) >= 2
