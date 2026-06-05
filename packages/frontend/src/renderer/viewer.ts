@@ -14,18 +14,28 @@ import {
   Mesh,
   MeshStandardMaterial,
   Object3D,
+  CanvasTexture,
+  DoubleSide,
+  LineDashedMaterial,
+  MeshBasicMaterial,
   PerspectiveCamera,
   Points,
   PointsMaterial,
   Quaternion,
+  Raycaster,
   Scene,
+  Sprite,
+  SpriteMaterial,
   SphereGeometry,
+  Texture,
+  Uint32BufferAttribute,
+  Vector2,
   Vector3,
   WebGLRenderer,
 } from "three";
 import { OrbitControls } from "three/addons/controls/OrbitControls.js";
 
-import type { DecodedGroup, DecodedScene } from "../protocol/types";
+import type { DecodedScene, DecodedGroup, Label } from "../protocol/types";
 
 const UNIT_SPHERE = new SphereGeometry(1, 20, 14);
 const UNIT_CYLINDER = new CylinderGeometry(1, 1, 1, 12, 1, true); // along +Y
@@ -41,8 +51,14 @@ export class Viewer {
   private readonly renderer: WebGLRenderer;
   private readonly controls: OrbitControls;
   private readonly root = new Group();
-  private readonly disposables: (BufferGeometry | Material)[] = [];
+  private readonly disposables: (BufferGeometry | Material | Texture)[] = [];
+  private readonly pickMeshes: InstancedMesh[] = [];
+  private readonly raycaster = new Raycaster();
+  private pointerDown: { x: number; y: number } | null = null;
   private hasFramed = false;
+
+  /** Set by the app to receive click-to-pick events (objectName, atomIndex). */
+  onPick: ((objectName: string, atomIndex: number) => void) | null = null;
 
   constructor(private readonly container: HTMLElement) {
     this.scene.background = new Color(0x0b0d10);
@@ -66,6 +82,9 @@ export class Viewer {
     this.scene.add(key);
 
     window.addEventListener("resize", this.onResize);
+    const canvas = this.renderer.domElement;
+    canvas.addEventListener("pointerdown", (e) => (this.pointerDown = { x: e.clientX, y: e.clientY }));
+    canvas.addEventListener("pointerup", this.onPointerUp);
     this.animate();
   }
 
@@ -78,7 +97,11 @@ export class Viewer {
     for (const obj of scene.objects) {
       if (!obj.visible) continue;
       for (const group of obj.groups) this.root.add(this.buildGroup(group));
+      this.addPickMesh(obj.name, obj.pickPositions);
     }
+    if (scene.measurementLines) this.root.add(this.dashedLines(scene.measurementLines));
+    if (scene.selectionPoints) this.root.add(this.selectionMarkers(scene.selectionPoints));
+    for (const label of scene.labels) this.root.add(this.label(label));
     if (!this.hasFramed && scene.objects.length > 0) {
       this.frameTo(scene.center, scene.boundingRadius);
       this.hasFramed = true;
@@ -109,7 +132,30 @@ export class Viewer {
         return this.lineSegments(group.positions, group.colors);
       case "points":
         return this.points(group.positions, group.colors, group.size);
+      case "mesh":
+        return this.mesh(group.positions, group.normals, group.colors, group.indices);
     }
+  }
+
+  private mesh(
+    positions: Float32Array,
+    normals: Float32Array,
+    colors: Float32Array,
+    indices: Uint32Array,
+  ): Mesh {
+    const geometry = new BufferGeometry();
+    geometry.setAttribute("position", new BufferAttribute(positions, 3));
+    geometry.setAttribute("normal", new BufferAttribute(normals, 3));
+    geometry.setAttribute("color", new BufferAttribute(colors, 3));
+    geometry.setIndex(new Uint32BufferAttribute(indices, 1));
+    const material = new MeshStandardMaterial({
+      vertexColors: true,
+      roughness: 0.5,
+      metalness: 0.0,
+      side: DoubleSide,
+    });
+    this.disposables.push(geometry, material);
+    return new Mesh(geometry, material);
   }
 
   private instancedSpheres(
@@ -183,6 +229,88 @@ export class Viewer {
     return new Points(geometry, material);
   }
 
+  /** Invisible per-atom spheres used only for click-to-pick raycasting. */
+  private addPickMesh(objectName: string, positions: Float32Array): void {
+    const count = positions.length / 3;
+    if (count === 0) return;
+    const material = new MeshBasicMaterial({ colorWrite: false, depthWrite: false });
+    const mesh = new InstancedMesh(UNIT_SPHERE, material, count);
+    mesh.userData.objectName = objectName;
+    const dummy = new Object3D();
+    for (let i = 0; i < count; i++) {
+      dummy.position.set(positions[i * 3], positions[i * 3 + 1], positions[i * 3 + 2]);
+      dummy.scale.setScalar(0.6);
+      dummy.updateMatrix();
+      mesh.setMatrixAt(i, dummy.matrix);
+    }
+    mesh.instanceMatrix.needsUpdate = true;
+    this.disposables.push(material);
+    this.pickMeshes.push(mesh);
+    this.root.add(mesh);
+  }
+
+  private selectionMarkers(positions: Float32Array): Points {
+    const geometry = new BufferGeometry();
+    geometry.setAttribute("position", new BufferAttribute(positions, 3));
+    const material = new PointsMaterial({
+      color: 0xff3df0,
+      size: 9,
+      sizeAttenuation: false,
+      depthTest: false,
+    });
+    this.disposables.push(geometry, material);
+    return new Points(geometry, material);
+  }
+
+  private onPointerUp = (e: PointerEvent): void => {
+    const down = this.pointerDown;
+    this.pointerDown = null;
+    if (!down || !this.onPick) return;
+    if (Math.hypot(e.clientX - down.x, e.clientY - down.y) > 4) return; // a drag, not a click
+
+    const rect = this.renderer.domElement.getBoundingClientRect();
+    const pointer = new Vector2(
+      ((e.clientX - rect.left) / rect.width) * 2 - 1,
+      -((e.clientY - rect.top) / rect.height) * 2 + 1,
+    );
+    this.raycaster.setFromCamera(pointer, this.camera);
+    const hits = this.raycaster.intersectObjects(this.pickMeshes, false);
+    if (hits.length && hits[0].instanceId != null) {
+      this.onPick(hits[0].object.userData.objectName as string, hits[0].instanceId);
+    }
+  };
+
+  private dashedLines(positions: Float32Array): LineSegments {
+    const geometry = new BufferGeometry();
+    geometry.setAttribute("position", new BufferAttribute(positions, 3));
+    const line = new LineSegments(
+      geometry,
+      new LineDashedMaterial({ color: 0xffe24d, dashSize: 0.4, gapSize: 0.25 }),
+    );
+    line.computeLineDistances(); // required for dashes to show
+    this.disposables.push(geometry, line.material as Material);
+    return line;
+  }
+
+  private label(label: Label): Sprite {
+    const canvas = document.createElement("canvas");
+    canvas.width = 256;
+    canvas.height = 64;
+    const ctx = canvas.getContext("2d")!;
+    ctx.font = "32px ui-monospace, monospace";
+    ctx.fillStyle = "#ffe24d";
+    ctx.textAlign = "center";
+    ctx.textBaseline = "middle";
+    ctx.fillText(label.text, 128, 32);
+    const texture: Texture = new CanvasTexture(canvas);
+    const material = new SpriteMaterial({ map: texture, depthTest: false, transparent: true });
+    const sprite = new Sprite(material);
+    sprite.position.set(...label.pos);
+    sprite.scale.set(4, 1, 1);
+    this.disposables.push(material, texture);
+    return sprite;
+  }
+
   private clear(): void {
     for (const child of [...this.root.children]) {
       this.root.remove(child);
@@ -191,6 +319,7 @@ export class Viewer {
       }
       if (child instanceof InstancedMesh) child.dispose();
     }
+    this.pickMeshes.length = 0;
     for (const d of this.disposables) d.dispose();
     this.disposables.length = 0;
   }

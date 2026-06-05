@@ -44,8 +44,14 @@ describe("decodeScene", () => {
               colors: new Uint8Array(colors.buffer),
             },
           ],
+          pick_positions: new Uint8Array(positions.buffer),
+          atoms: { elements: ["C", "O"], names: ["C", "O"], resns: ["A", "A"], resis: [1, 1], chains: ["A", "A"] },
+          residues: [{ chain: "A", resi: 1, resn: "ALA", code: "A" }],
         },
       ],
+      measurement_lines: null,
+      labels: [],
+      selection_points: null,
     };
 
     const scene = decodeScene(msg);

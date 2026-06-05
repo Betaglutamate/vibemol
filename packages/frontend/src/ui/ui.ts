@@ -7,8 +7,9 @@ export interface UIHandlers {
 }
 
 const REPS: [string, string][] = [
-  ["lines", "Lines"], ["sticks", "Sticks"], ["ball_and_stick", "Ball+Stick"],
-  ["spheres", "Spheres"], ["nonbonded", "Nonbonded"], ["dots", "Dots"],
+  ["cartoon", "Cartoon"], ["sticks", "Sticks"], ["ball_and_stick", "Ball+Stick"],
+  ["spheres", "Spheres"], ["surface", "Surface"], ["lines", "Lines"],
+  ["nonbonded", "Nonbonded"], ["dots", "Dots"],
 ];
 const COLORS: [string, string][] = [
   ["byelement", "Element"], ["bychain", "Chain"], ["spectrum", "Spectrum"],
@@ -29,6 +30,7 @@ export class UI {
   private readonly logEl: HTMLDivElement;
   private readonly objectsEl: HTMLDivElement;
   private readonly selectionsEl: HTMLDivElement;
+  private readonly sequenceEl: HTMLDivElement;
   private readonly statusEl: HTMLSpanElement;
 
   constructor(private readonly handlers: UIHandlers) {
@@ -60,6 +62,9 @@ export class UI {
       el("div", { className: "vm-panel-title", textContent: "Selections" }), this.selectionsEl,
     ]);
 
+    // --- sequence viewer (bottom strip above the console) ---
+    this.sequenceEl = el("div", { className: "vm-sequence" });
+
     // --- bottom console ---
     this.logEl = el("div", { className: "vm-log" });
     const input = el("input", { className: "vm-console-input", placeholder: "command… (try: show sticks, elem C)" });
@@ -78,7 +83,7 @@ export class UI {
       el("br"), this.statusEl,
     ]);
 
-    document.body.append(toolbar, panel, consoleEl, hud);
+    document.body.append(toolbar, panel, this.sequenceEl, consoleEl, hud);
     this.wireDragAndDrop();
   }
 
@@ -116,6 +121,37 @@ export class UI {
           )
         : [el("div", { className: "vm-dim", textContent: "none" })]),
     );
+    this.renderSequence(scene);
+  }
+
+  /** A clickable one-letter sequence per chain; clicking selects that residue. */
+  private renderSequence(scene: DecodedScene): void {
+    const rows: Node[] = [];
+    for (const obj of scene.objects) {
+      const byChain = new Map<string, typeof obj.residues>();
+      for (const r of obj.residues) {
+        if (!byChain.has(r.chain)) byChain.set(r.chain, []);
+        byChain.get(r.chain)!.push(r);
+      }
+      for (const [chain, residues] of byChain) {
+        const letters = residues.map((r) =>
+          el("span", {
+            className: "vm-res",
+            textContent: r.code,
+            title: `${obj.name} ${r.resn}${r.resi} (chain ${chain})`,
+            onclick: () =>
+              this.handlers.onCommand(`select sele, chain ${chain} and resi ${r.resi}`),
+          }),
+        );
+        rows.push(
+          el("div", { className: "vm-seq-row" }, [
+            el("span", { className: "vm-seq-label", textContent: `${obj.name}/${chain}` }),
+            ...letters,
+          ]),
+        );
+      }
+    }
+    this.sequenceEl.replaceChildren(...rows);
   }
 
   renderLog(log: LogLine[]): void {

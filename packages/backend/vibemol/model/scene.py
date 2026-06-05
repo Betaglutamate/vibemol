@@ -24,6 +24,8 @@ REP_KINDS: tuple[str, ...] = (
     "spheres",
     "nonbonded",
     "dots",
+    "cartoon",
+    "surface",
 )
 
 
@@ -45,13 +47,19 @@ class MolObject:
             self.colors = self.structure.cpk_colors_rgb()
 
     def apply_default_representation(self) -> None:
-        """PyMOL-like default: lines for bonded atoms, nonbonded points elsewhere."""
+        """PyMOL-like default: cartoon for proteins; otherwise lines for bonded
+        atoms with nonbonded points for the rest."""
+        from ..geometry.cartoon import has_protein_backbone  # noqa: PLC0415
+
         n = self.structure.n_atoms
         bonded = np.zeros(n, dtype=bool)
         if self.structure.n_bonds:
             bonded[self.structure.bonds.reshape(-1)] = True
-        self.rep_masks["lines"] = bonded.copy()
-        self.rep_masks["nonbonded"] = ~bonded
+        if has_protein_backbone(self.structure):
+            self.rep_masks["cartoon"] = np.ones(n, dtype=bool)
+        else:
+            self.rep_masks["lines"] = bonded.copy()
+            self.rep_masks["nonbonded"] = ~bonded
 
     def show(self, kind: str, mask: np.ndarray) -> None:
         self.rep_masks[kind] |= mask
@@ -76,13 +84,28 @@ class MolObject:
 
 
 @dataclass
+class Measurement:
+    """A distance/angle/dihedral/contact annotation: dashed lines + a text label.
+
+    ``points`` are the measured atom coordinates (2 for distance, 3 for angle,
+    4 for dihedral); the label sits at their centroid.
+    """
+
+    kind: str
+    label: str
+    points: list[list[float]]
+
+
+@dataclass
 class Scene:
-    """The full session: ordered objects, named selections, and settings."""
+    """The full session: ordered objects, named selections, settings, and
+    measurement annotations."""
 
     objects: dict[str, MolObject] = field(default_factory=dict)
     # Named selection -> {object_name: boolean mask over that object's atoms}.
     selections: dict[str, dict[str, np.ndarray]] = field(default_factory=dict)
     settings: dict[str, Any] = field(default_factory=lambda: {"bg_color": "#0b0d10"})
+    measurements: list[Measurement] = field(default_factory=list)
 
     def add_object(self, obj: MolObject, *, default_rep: bool = True) -> MolObject:
         if default_rep:

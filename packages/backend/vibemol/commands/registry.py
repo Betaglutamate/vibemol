@@ -53,6 +53,16 @@ class Context:
             for name, obj in self.scene.objects.items()
         }
 
+    def selected_coords(self, expression: str) -> np.ndarray:
+        """Concatenated coordinates of all atoms matching ``expression``."""
+        masks = self.resolve(expression)
+        parts = [
+            obj.structure.coords[masks[name]]
+            for name, obj in self.scene.objects.items()
+            if masks[name].any()
+        ]
+        return np.concatenate(parts) if parts else np.empty((0, 3), dtype=np.float32)
+
 
 Command = Callable[[Context, list[str]], CommandResult]
 _REGISTRY: dict[str, Command] = {}

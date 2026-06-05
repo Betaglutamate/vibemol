@@ -9,6 +9,18 @@ const viewer = new Viewer(appEl);
 const proto = location.protocol === "https:" ? "wss" : "ws";
 const client = new SceneClient(`${proto}://${location.host}/ws`, viewer);
 
+// Click-to-pick: identify the atom and add it to the `sele` selection.
+viewer.onPick = (objectName, atomIndex) => {
+  const scene = appStore.getState().scene;
+  const obj = scene?.objects.find((o) => o.name === objectName);
+  if (obj) {
+    const a = obj.atoms;
+    const id = `/${objectName}/${a.chains[atomIndex]}/${a.resns[atomIndex]}\`${a.resis[atomIndex]}/${a.names[atomIndex]}`;
+    appStore.getState().appendLog({ level: "info", message: `picked ${id}` });
+  }
+  client.runCommand(`select sele, index ${atomIndex + 1}`);
+};
+
 const ui = new UI({
   onCommand: (text) => client.runCommand(text),
   onFile: async (file) => {

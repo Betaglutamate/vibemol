@@ -15,6 +15,12 @@ export function asFloat32(bytes: Uint8Array): Float32Array {
   return new Float32Array(copy.buffer, copy.byteOffset, copy.byteLength / 4);
 }
 
+/** Wrap a raw byte blob as Uint32Array (mesh indices), copying for alignment. */
+export function asUint32(bytes: Uint8Array): Uint32Array {
+  const copy = bytes.slice();
+  return new Uint32Array(copy.buffer, copy.byteOffset, copy.byteLength / 4);
+}
+
 function decodeGroup(g: RawGroup): DecodedGroup {
   switch (g.primitive) {
     case "spheres":
@@ -49,6 +55,15 @@ function decodeGroup(g: RawGroup): DecodedGroup {
         colors: asFloat32(g.colors!),
         size: g.size ?? 3,
       };
+    case "mesh":
+      return {
+        primitive: "mesh",
+        count: g.count,
+        positions: asFloat32(g.positions!),
+        normals: asFloat32(g.normals!),
+        colors: asFloat32(g.colors!),
+        indices: asUint32(g.indices!),
+      };
   }
 }
 
@@ -61,6 +76,9 @@ function decodeObject(o: RawObject): DecodedObject {
     boundingRadius: o.bounding_radius,
     activeReps: o.active_reps,
     groups: o.groups.map(decodeGroup),
+    pickPositions: asFloat32(o.pick_positions),
+    atoms: o.atoms,
+    residues: o.residues,
   };
 }
 
@@ -71,5 +89,8 @@ export function decodeScene(msg: SceneMessage): DecodedScene {
     center: msg.center,
     boundingRadius: msg.bounding_radius,
     objects: msg.objects.map(decodeObject),
+    measurementLines: msg.measurement_lines ? asFloat32(msg.measurement_lines.positions) : null,
+    labels: msg.labels ?? [],
+    selectionPoints: msg.selection_points ? asFloat32(msg.selection_points) : null,
   };
 }

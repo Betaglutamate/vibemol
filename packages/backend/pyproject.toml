@@ -63,5 +63,12 @@ ignore_missing_imports = true
 # don't fail the type gate on their lack of types.
 disable_error_code = ["import-untyped"]
 
+# Don't analyze the optional science libraries' own source (some use newer
+# Python syntax than our target); just trust their public surface.
+[[tool.mypy.overrides]]
+module = ["skimage.*", "scipy.*", "tifffile.*", "gemmi.*", "rdkit.*", "Bio.*"]
+ignore_missing_imports = true
+follow_imports = "skip"
+
 [tool.pytest.ini_options]
 testpaths = ["tests"]

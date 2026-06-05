@@ -20,6 +20,7 @@ import numpy as np
 from ..model.scene import MolObject
 from ..model.structure import Structure
 from ..protocol.geometry import cylinders_group, lines_group, points_group, spheres_group
+from .cartoon import build_cartoon_mesh
 
 _STICK_RADIUS = 0.20
 _BALL_STICK_BOND_RADIUS = 0.13
@@ -110,5 +111,17 @@ def build_groups(obj: MolObject) -> list[dict[str, Any]]:
             pos = pts.reshape(-1, 3)
             col = np.repeat(colors[idx], _DOTS_PER_ATOM, axis=0)
             groups.append(points_group(pos, col, size=2.0))
+
+        elif kind == "cartoon":
+            cartoon = build_cartoon_mesh(s, mask, colors)
+            if cartoon is not None:
+                groups.append(cartoon)
+
+        elif kind == "surface":
+            from .surface import build_surface_mesh  # noqa: PLC0415
+
+            surface = build_surface_mesh(s, mask, colors)
+            if surface is not None:
+                groups.append(surface)
 
     return groups
