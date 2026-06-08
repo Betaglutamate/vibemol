@@ -505,16 +505,29 @@ export class UI {
 
     this.objectsEl.replaceChildren(
       ...(scene.objects.length
-        ? scene.objects.map((o) =>
-            el("div", { className: "vm-row" }, [
-              el("span", { className: "name" }, [o.name, el("span", { className: "meta", textContent: ` ${o.nAtoms} atoms` })]),
-              el("button", { className: "vm-x", textContent: "✕", title: `delete ${o.name}`, onclick: () => this.handlers.onCommand(`delete ${o.name}`) }),
-            ]),
-          )
+        ? scene.objects.map((o) => this.objectRow(o))
         : [el("div", { className: "vm-empty", textContent: "Open a structure (File ▸ Demo / Fetch)" })]),
     );
     this.renderSelections(scene);
     this.renderSequence(scene);
+  }
+
+  private objectRow(o: DecodedScene["objects"][number]): HTMLElement {
+    const eye = el("button", {
+      className: "vm-x vm-eye",
+      textContent: o.visible ? "◉" : "◯",
+      title: o.visible ? "hide object" : "show object",
+      onclick: () => this.handlers.onCommand(`${o.visible ? "disable" : "enable"} ${o.name}`),
+    });
+    const nameEl = el("span", {
+      className: "name", title: "click to select the whole object",
+      onclick: () => this.handlers.onCommand(`select sele, ${o.name}`),
+    }, [o.name, el("span", { className: "meta", textContent: ` ${o.nAtoms} atoms` })]);
+    const del = el("button", {
+      className: "vm-x", textContent: "✕", title: `delete ${o.name}`,
+      onclick: () => this.handlers.onCommand(`delete ${o.name}`),
+    });
+    return el("div", { className: "vm-row vm-obj" + (o.visible ? "" : " hidden") }, [eye, nameEl, del]);
   }
 
   // ---- selection management ----

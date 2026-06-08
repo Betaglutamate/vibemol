@@ -93,6 +93,19 @@ def test_set_name_renames_object() -> None:
     assert "benzene" in ctx.scene.objects and "demo" not in ctx.scene.objects
 
 
+def test_enable_disable_object() -> None:
+    ctx = ctx_with_demo()
+    assert obj(ctx).visible is True
+    res = dispatch(ctx, "disable demo")
+    assert obj(ctx).visible is False and res.scene_changed
+    dispatch(ctx, "enable demo")
+    assert obj(ctx).visible is True
+    dispatch(ctx, "disable all")
+    assert obj(ctx).visible is False
+    with pytest.raises(CommandError):
+        dispatch(ctx, "disable nosuchobject")
+
+
 def test_bg_color_and_set() -> None:
     ctx = ctx_with_demo()
     dispatch(ctx, "bg_color white")

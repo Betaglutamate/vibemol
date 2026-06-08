@@ -252,6 +252,33 @@ def cmd_zoom(ctx: Context, args: list[str]) -> CommandResult:
     )
 
 
+# --- visibility -------------------------------------------------------------
+
+
+def _set_visible(ctx: Context, target: str, visible: bool, verb: str) -> CommandResult:
+    if not target or target.lower() == "all":
+        for o in ctx.scene.objects.values():
+            o.visible = visible
+        return CommandResult(log=f"{verb} all")
+    obj = ctx.scene.objects.get(target)
+    if obj is None:
+        raise CommandError(f"{verb}: no such object: {target!r}")
+    obj.visible = visible
+    return CommandResult(log=f"{verb} {target}")
+
+
+@command("disable", "hide_object")
+def cmd_disable(ctx: Context, args: list[str]) -> CommandResult:
+    """Hide an object (or 'all') without changing its representations."""
+    return _set_visible(ctx, args[0].strip() if args and args[0] else "", False, "disabled")
+
+
+@command("enable", "show_object")
+def cmd_enable(ctx: Context, args: list[str]) -> CommandResult:
+    """Show a previously hidden object (or 'all')."""
+    return _set_visible(ctx, args[0].strip() if args and args[0] else "", True, "enabled")
+
+
 # --- deletion --------------------------------------------------------------
 
 
