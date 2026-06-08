@@ -87,6 +87,23 @@
       .vm-right { position: fixed; top: 108px; right: 14px; width: 250px; z-index: 20; bottom: 150px;
         display: flex; flex-direction: column; }
       .vm-scroll { overflow-y: auto; }
+
+      /* script editor (left dock) */
+      .vm-editor { position: fixed; top: 108px; left: 14px; width: 340px; bottom: 150px; z-index: 20;
+        display: flex; flex-direction: column; overflow: hidden; }
+      .vm-editor-head { display: flex; align-items: center; gap: 6px; padding: 9px 11px;
+        border-bottom: 1px solid var(--border-soft); }
+      .vm-editor-head .vm-title { margin: 0; }
+      .vm-editor-head .vm-btn { padding: 3px 9px; font-size: 12px; }
+      .vm-code-wrap { flex: 1; display: flex; overflow: hidden; font: var(--mono); }
+      .vm-gutter { padding: 8px 6px 8px 10px; text-align: right; color: #4b5563;
+        background: rgba(0,0,0,0.18); white-space: pre; overflow: hidden; user-select: none;
+        line-height: 1.5; }
+      .vm-code { flex: 1; resize: none; border: none; outline: none; background: transparent;
+        color: var(--fg); padding: 8px 10px; font: var(--mono); line-height: 1.5; tab-size: 2;
+        white-space: pre; overflow: auto; }
+      .vm-editor-hint { padding: 6px 11px; font-size: 11px; color: var(--dim);
+        border-top: 1px solid var(--border-soft); }
       .vm-section { padding: 12px 13px; border-bottom: 1px solid var(--border-soft); }
       .vm-section:last-child { border-bottom: none; }
       .vm-title { font-size: 10px; font-weight: 700; letter-spacing: 0.09em; text-transform: uppercase;

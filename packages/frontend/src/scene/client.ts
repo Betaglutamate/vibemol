@@ -66,6 +66,11 @@ export class SceneClient {
     }
   }
 
+  /** Run a multi-line chunk; the server echoes each line and streams one scene. */
+  runScript(text: string): void {
+    if (text.trim()) this.send({ type: "run_script", text });
+  }
+
   loadDemo(): void {
     this.send({ type: "load", source: "demo" });
   }

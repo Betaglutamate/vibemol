@@ -18,7 +18,18 @@ export interface UIHandlers {
   onOpenSession: (file: File) => void;
   onExportStructure: () => void;
   onSmiles: (smiles: string, name: string) => void;
+  onRunScript: (text: string) => void; // run a multi-line chunk of commands
 }
+
+const STARTER_SCRIPT = `# VibeMol script — Cmd/Ctrl+Enter runs the selection or current line.
+# Shift+Cmd/Ctrl+Enter (or Run All) runs the whole script.
+fetch 1ubq
+as cartoon
+color spectrum
+select site, byres (resn HOH around 4)
+show sticks, site
+zoom site
+`;
 
 const REPS: [string, string][] = [
   ["cartoon", "Cartoon"], ["surface", "Surface"], ["sticks", "Sticks"],
@@ -53,6 +64,10 @@ export class UI {
   private trajSlider!: HTMLInputElement;
   private trajLabel!: HTMLSpanElement;
   private targetChip!: HTMLSpanElement;
+  private scriptPanel!: HTMLElement;
+  private scriptArea!: HTMLTextAreaElement;
+  private scriptGutter!: HTMLElement;
+  private scriptVisible = false;
 
   private nStates = 1;
   private playing = false;
@@ -78,6 +93,7 @@ export class UI {
       this.buildTopBar(),
       this.buildQuickbar(),
       this.buildRightPanel(),
+      this.buildScriptEditor(),
       this.buildDock(),
       this.hintEl,
     );
@@ -146,6 +162,7 @@ export class UI {
             ],
           },
           { kind: "separator" },
+          { kind: "checkbox", label: "Script Editor", checked: () => this.scriptVisible, toggle: () => this.toggleScript() },
           { kind: "checkbox", label: "Orthographic camera", checked: () => this.ortho, toggle: () => { this.ortho = !this.ortho; this.handlers.onProjection(this.ortho); } },
           { kind: "checkbox", label: "High Quality (SSAO)", checked: () => this.quality, toggle: () => { this.quality = !this.quality; this.handlers.onQuality(this.quality); } },
           { kind: "checkbox", label: "Spin", checked: () => this.spin, toggle: () => { this.spin = !this.spin; this.handlers.onSpin(this.spin); } },
@@ -304,6 +321,85 @@ export class UI {
       this.measureMode = null;
       this.measurePicks = [];
       this.hideToast();
+    }
+  }
+
+  // ---- script editor (left dock, toggleable) ----
+
+  private buildScriptEditor(): HTMLElement {
+    this.scriptGutter = el("div", { className: "vm-gutter" });
+    this.scriptArea = el("textarea", {
+      className: "vm-code", spellcheck: false, value: STARTER_SCRIPT,
+    }) as HTMLTextAreaElement;
+    this.scriptArea.addEventListener("input", () => this.syncGutter());
+    this.scriptArea.addEventListener("scroll", () => {
+      this.scriptGutter.scrollTop = this.scriptArea.scrollTop;
+    });
+    this.scriptArea.addEventListener("keydown", (e) => this.onScriptKey(e));
+
+    const runAll = el("button", { className: "vm-btn", textContent: "▶▶ Run All", title: "Shift+Cmd/Ctrl+Enter", onclick: () => this.runScriptAll() });
+    const runSel = el("button", { className: "vm-btn", textContent: "▶ Run", title: "Cmd/Ctrl+Enter — selection or current line", onclick: () => this.runScriptSelection() });
+    const close = el("button", { className: "vm-x", textContent: "✕", title: "hide", onclick: () => this.toggleScript() });
+
+    this.scriptPanel = el("div", { className: "vm-editor vm-card" }, [
+      el("div", { className: "vm-editor-head" }, [
+        el("span", { className: "vm-title", textContent: "Script" }),
+        el("span", { className: "vm-spacer" }), runSel, runAll, close,
+      ]),
+      el("div", { className: "vm-code-wrap" }, [this.scriptGutter, this.scriptArea]),
+      el("div", { className: "vm-editor-hint", textContent: "⌘/Ctrl+Enter: run line/selection · ⇧: run all" }),
+    ]);
+    this.scriptPanel.style.display = "none";
+    this.syncGutter();
+    return this.scriptPanel;
+  }
+
+  private toggleScript(): void {
+    this.scriptVisible = !this.scriptVisible;
+    this.scriptPanel.style.display = this.scriptVisible ? "flex" : "none";
+    if (this.scriptVisible) {
+      this.syncGutter();
+      this.scriptArea.focus();
+    }
+  }
+
+  private syncGutter(): void {
+    const n = this.scriptArea.value.split("\n").length;
+    this.scriptGutter.textContent = Array.from({ length: n }, (_, i) => i + 1).join("\n");
+    this.scriptGutter.scrollTop = this.scriptArea.scrollTop;
+  }
+
+  private onScriptKey(e: KeyboardEvent): void {
+    if (e.key === "Enter" && (e.metaKey || e.ctrlKey)) {
+      e.preventDefault();
+      if (e.shiftKey) this.runScriptAll();
+      else this.runScriptSelection();
+    } else if (e.key === "Tab") {
+      e.preventDefault(); // keep focus; insert two spaces
+      const ta = this.scriptArea;
+      const s = ta.selectionStart;
+      ta.value = ta.value.slice(0, s) + "  " + ta.value.slice(ta.selectionEnd);
+      ta.selectionStart = ta.selectionEnd = s + 2;
+      this.syncGutter();
+    }
+  }
+
+  private runScriptAll(): void {
+    this.handlers.onRunScript(this.scriptArea.value);
+  }
+
+  /** Run the selected lines, or the current line if there's no selection. */
+  private runScriptSelection(): void {
+    const ta = this.scriptArea;
+    const v = ta.value;
+    const lineStart = v.lastIndexOf("\n", ta.selectionStart - 1) + 1;
+    let lineEnd = v.indexOf("\n", ta.selectionEnd);
+    if (lineEnd === -1) lineEnd = v.length;
+    this.handlers.onRunScript(v.slice(lineStart, lineEnd));
+    // No selection? advance the caret to the next line for rapid stepping.
+    if (ta.selectionStart === ta.selectionEnd) {
+      const next = Math.min(lineEnd + 1, v.length);
+      ta.selectionStart = ta.selectionEnd = next;
     }
   }
 

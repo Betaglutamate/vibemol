@@ -80,3 +80,48 @@ def test_bad_command_returns_error_log() -> None:
         _send(ws, {"type": "command", "text": "frobnicate"})
         log = _recv_until(ws, "log")
     assert log["level"] == "error"
+
+
+def test_run_script_executes_chunk_and_streams_one_scene() -> None:
+    client = TestClient(create_app())
+    with client.websocket_connect("/ws") as ws:
+        _send(ws, {"type": "load", "source": "demo"})
+        _recv_until(ws, "scene")
+        script = "# a script\nas spheres\ncolor red, elem C\nselect ring, elem C\n"
+        _send(ws, {"type": "run_script", "text": script})
+        # Collect everything until the trailing scene update.
+        logs: list[str] = []
+        scene = None
+        for _ in range(20):
+            m = _recv(ws)
+            if m["type"] == "log":
+                logs.append(m["message"])
+            elif m["type"] == "scene":
+                scene = m
+                break
+
+    assert scene is not None
+    groups = {g["primitive"]: g for g in scene["objects"][0]["groups"]}
+    assert "spheres" in groups  # `as spheres` applied
+    assert "ring" in scene["selections"]  # `select` ran
+    assert "> as spheres" in logs  # each command line is echoed
+    assert any(line.startswith("# ") is False and ">" in line for line in logs)
+
+
+def test_run_script_continues_past_errors() -> None:
+    client = TestClient(create_app())
+    with client.websocket_connect("/ws") as ws:
+        _send(ws, {"type": "load", "source": "demo"})
+        _recv_until(ws, "scene")
+        _send(ws, {"type": "run_script", "text": "boguscmd\nas spheres\n"})
+        errored = False
+        scene = None
+        for _ in range(20):
+            m = _recv(ws)
+            if m["type"] == "log" and m["level"] == "error":
+                errored = True
+            elif m["type"] == "scene":
+                scene = m
+                break
+    assert errored and scene is not None  # bad line logged, good line still applied
+    assert "spheres" in {g["primitive"] for g in scene["objects"][0]["groups"]}

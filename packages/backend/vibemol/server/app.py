@@ -102,6 +102,32 @@ async def _handle(socket: WebSocket, ctx: Context, msg: dict) -> None:
         if result.scene_changed or result.selections_changed:
             await _send(socket, scene_message(ctx.scene))
 
+    elif msg_type == "run_script":
+        # Execute a multi-line chunk: echo + run each command, then stream ONE
+        # scene update at the end so the whole script applies atomically.
+        scene_dirty = False
+        camera: dict[str, object] | None = None
+        for raw in msg.get("text", "").splitlines():
+            line = raw.strip()
+            if not line or line.startswith("#"):
+                continue
+            await _log(socket, f"> {line}")
+            try:
+                result = dispatch(ctx, raw)
+            except Exception as exc:  # log and keep going so one bad line won't abort
+                await _log(socket, str(exc), level="error")
+                continue
+            if result.log:
+                await _log(socket, result.log)
+            if result.camera is not None:
+                camera = result.camera
+            if result.scene_changed or result.selections_changed:
+                scene_dirty = True
+        if scene_dirty:
+            await _send(socket, scene_message(ctx.scene))
+        if camera is not None:
+            await _send(socket, {"type": "camera", **camera})
+
     elif msg_type == "save_session":
         data = dump_session(ctx.scene)
         await _send(socket, {

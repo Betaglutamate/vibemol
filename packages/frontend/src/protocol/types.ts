@@ -20,6 +20,11 @@ export interface CommandMessage {
   text: string;
 }
 
+export interface RunScriptMessage {
+  type: "run_script";
+  text: string;
+}
+
 export interface SaveSessionMessage {
   type: "save_session";
 }
@@ -38,6 +43,7 @@ export type ClientMessage =
   | LoadCommand
   | LoadDataCommand
   | CommandMessage
+  | RunScriptMessage
   | SaveSessionMessage
   | LoadSessionMessage
   | ExportStructureMessage;

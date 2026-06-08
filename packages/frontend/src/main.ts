@@ -29,6 +29,7 @@ const ui = new UI({
   onOpenSession: async (file) => client.openSession(new Uint8Array(await file.arrayBuffer())),
   onExportStructure: () => client.exportStructure(),
   onSmiles: (smiles, name) => client.loadFile(name, "smiles", smiles),
+  onRunScript: (text) => client.runScript(text),
   onSnapshot: () => {
     const link = document.createElement("a");
     link.href = viewer.snapshot();
