@@ -16,6 +16,7 @@ from ..analysis import (
     rmsd,
     sasa,
     super_structures,
+    tm_align,
 )
 from ..color import color_values
 from ..model.scene import Measurement, MolObject
@@ -173,6 +174,24 @@ def cmd_super(ctx: Context, args: list[str]) -> CommandResult:
         raise CommandError(str(e)) from e
     mobile.structure.coords = apply_transform(mobile.structure.coords, rot, trans)
     return CommandResult(log=f"super {mobile.name} -> {target.name}: RMSD {err:.3f} A, {n} atoms")
+
+
+@command("usalign", "tmalign", "tm_align")
+def cmd_usalign(ctx: Context, args: list[str]) -> CommandResult:
+    """TM-align superposition — aligns even partially overlapping proteins."""
+    mobile, target = _two_objects(ctx, args, "usalign")
+    try:
+        rot, trans, tm_mob, tm_tgt, err, n = tm_align(mobile.structure, target.structure)
+    except ValueError as e:
+        raise CommandError(str(e)) from e
+    mobile.structure.coords = apply_transform(mobile.structure.coords, rot, trans)
+    return CommandResult(
+        log=(
+            f"usalign {mobile.name} -> {target.name}: "
+            f"TM-score {tm_tgt:.4f} (norm. {target.name}), {tm_mob:.4f} (norm. {mobile.name}); "
+            f"RMSD {err:.3f} A over {n} residues"
+        )
+    )
 
 
 def _matched_atoms(mob: Structure, tgt: Structure) -> tuple[np.ndarray, np.ndarray]:

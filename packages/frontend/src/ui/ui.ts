@@ -187,7 +187,13 @@ export class UI {
               { kind: "action", label: "Dihedral (pick 4)", run: () => this.startMeasure("dihedral") },
             ],
           },
-          { kind: "action", label: "Align Objects…", run: () => this.alignDialog() },
+          {
+            kind: "submenu", label: "Superpose Objects", items: [
+              { kind: "action", label: "Align (sequence-based)…", run: () => this.alignDialog("align", "Align — pair residues by sequence") },
+              { kind: "action", label: "Super (structure-based)…", run: () => this.alignDialog("super", "Super — sequence-independent fit") },
+              { kind: "action", label: "TM-align / US-align (partial overlap)…", run: () => this.alignDialog("usalign", "TM-align — maximize TM-score") },
+            ],
+          },
           { kind: "separator" },
           { kind: "action", label: "Clear Measurements", run: () => this.handlers.onCommand("delete_measurements") },
         ],
@@ -249,13 +255,13 @@ export class UI {
     if (v?.a && v?.b) this.handlers.onCommand(`interface ${v.a}, ${v.b}, ${v.cutoff || "5"}`);
   }
 
-  private async alignDialog(): Promise<void> {
+  private async alignDialog(method: "align" | "super" | "usalign", title: string): Promise<void> {
     const objs = this.lastScene?.objects.map((o) => o.name) ?? [];
-    const v = await openDialog("Align Objects", [
-      { name: "mobile", label: "Mobile object", value: objs[0] ?? "" },
-      { name: "target", label: "Target object", value: objs[1] ?? "" },
-    ], "Align");
-    if (v?.mobile && v?.target) this.handlers.onCommand(`align ${v.mobile}, ${v.target}`);
+    const v = await openDialog(title, [
+      { name: "mobile", label: "Mobile object (moved)", value: objs[0] ?? "" },
+      { name: "target", label: "Target object (fixed)", value: objs[1] ?? "" },
+    ], "Superpose");
+    if (v?.mobile && v?.target) this.handlers.onCommand(`${method} ${v.mobile}, ${v.target}`);
   }
 
   private async openFileDialog(accept: string, onFile: (f: File) => void): Promise<void> {

@@ -6,6 +6,7 @@ from .measure import angle, dihedral, distance, polar_contacts
 from .sasa import sasa
 from .sequence import needleman_wunsch
 from .superpose import align_structures, iterative_fit, super_structures
+from .tmalign import tm_align
 
 __all__ = [
     "kabsch",
@@ -20,4 +21,5 @@ __all__ = [
     "iterative_fit",
     "align_structures",
     "super_structures",
+    "tm_align",
 ]
