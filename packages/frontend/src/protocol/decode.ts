@@ -79,6 +79,7 @@ function decodeObject(o: RawObject): DecodedObject {
     pickPositions: asFloat32(o.pick_positions),
     atoms: o.atoms,
     residues: o.residues,
+    selectedResidues: new Set((o.selected_residues ?? []).map(([c, r]) => `${c}:${r}`)),
   };
 }
 

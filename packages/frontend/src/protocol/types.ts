@@ -93,6 +93,7 @@ export interface RawObject {
   pick_positions: Uint8Array;
   atoms: AtomInfo;
   residues: Residue[];
+  selected_residues: [string, number][];
 }
 
 export interface Label {
@@ -155,6 +156,8 @@ export interface DecodedObject {
   pickPositions: Float32Array;
   atoms: AtomInfo;
   residues: Residue[];
+  /** Set of (chain, resi) pairs that belong to any named selection. */
+  selectedResidues: Set<string>;
 }
 
 export interface DecodedScene {

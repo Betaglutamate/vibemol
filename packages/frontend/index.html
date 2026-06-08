@@ -84,7 +84,7 @@
       .vm-chip.set::after { content: " ✕"; opacity: 0.7; }
 
       /* ---- right data panel ---- */
-      .vm-right { position: fixed; top: 108px; right: 14px; width: 250px; z-index: 20; bottom: 150px;
+      .vm-right { position: fixed; top: 108px; right: 14px; width: 340px; z-index: 20; bottom: 150px;
         display: flex; flex-direction: column; }
       .vm-scroll { overflow-y: auto; }
 
@@ -133,15 +133,28 @@
       .vm-empty { color: var(--dim); font-size: 12px; font-style: italic; }
 
       .vm-seq { font: var(--mono); }
-      .vm-seq-row { white-space: nowrap; margin-bottom: 3px; padding-left: 20px;
-        font: var(--mono); overflow-x: auto; }
-      .vm-seq-label { color: var(--accent); margin-right: 8px; font-size: 11px; }
-      .vm-lig-label { color: #e0a040; }
-      .vm-res { cursor: pointer; padding: 0 1px; color: #9aa3af; border-radius: 2px; font-size: 11px; }
+      .vm-seq-chain { padding-left: 16px; margin-bottom: 4px; }
+      .vm-seq-chain-label { color: var(--accent); font-size: 11px; font-weight: 600; margin-bottom: 2px;
+        cursor: pointer; user-select: none; display: flex; align-items: center; gap: 2px;
+        padding: 2px 0; border-radius: 4px; }
+      .vm-seq-chain-label:hover { color: #fff; }
+      .vm-seq-chain-label .meta { color: var(--dim); font-size: 10px; font-weight: 400; }
+      .vm-seq-line { display: flex; align-items: center; height: 20px; }
+      .vm-seq-num { color: var(--dim); font-size: 10px; width: 36px; text-align: right;
+        margin-right: 6px; flex-shrink: 0; user-select: none; }
+      .vm-seq-letters { display: flex; gap: 0; }
+      .vm-lig-row { padding-left: 16px; margin-bottom: 4px; }
+      .vm-lig-label { color: #e0a040; font-size: 11px; font-weight: 600; margin-bottom: 2px; }
+      .vm-lig-chips { display: flex; flex-wrap: wrap; gap: 4px; padding-left: 42px; }
+      .vm-res { cursor: pointer; padding: 1px 1.5px; color: #9aa3af; border-radius: 2px; font-size: 12px;
+        font-family: 'SF Mono', 'Menlo', 'Consolas', monospace; }
       .vm-res:hover { background: var(--accent-2); color: #000; }
+      .vm-res.selected { background: rgba(255, 92, 200, 0.25); color: #fff; }
+      .vm-res.selected:hover { background: rgba(255, 92, 200, 0.45); }
       .vm-res.vm-ligand { color: #e0a040; background: rgba(224, 160, 64, 0.12);
-        padding: 1px 4px; margin: 0 2px; border-radius: 3px; font-weight: 600; font-size: 11px; }
+        padding: 2px 5px; border-radius: 3px; font-weight: 600; font-size: 11px; }
       .vm-res.vm-ligand:hover { background: rgba(224, 160, 64, 0.35); color: #fff; }
+      .vm-res.vm-ligand.selected { background: rgba(224, 160, 64, 0.4); color: #fff; }
 
       /* ---- bottom dock ---- */
       .vm-dock { position: fixed; bottom: 0; left: 0; right: 0; z-index: 25;

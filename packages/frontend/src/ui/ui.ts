@@ -554,6 +554,8 @@ export class UI {
     const children: (Node | string)[] = [header];
 
     if (!collapsed) {
+      const sel = o.selectedResidues;
+
       // --- polymer chains ---
       const byChain = new Map<string, typeof o.residues>();
       const ligands: typeof o.residues = [];
@@ -565,33 +567,59 @@ export class UI {
           byChain.get(r.chain)!.push(r);
         }
       }
+      const CHUNK = 30; // residues per line
       for (const [chain, residues] of byChain) {
-        const letters = residues.map((r) =>
-          el("span", {
-            className: "vm-res", textContent: r.code,
-            title: `${o.name} ${r.resn}${r.resi} (chain ${chain})  ·  shift=range, ⌘=add`,
-            onclick: (e: MouseEvent) =>
-              this.selectResidue(chain, r.resi, { range: e.shiftKey, add: e.metaKey || e.ctrlKey }),
-          }),
-        );
-        children.push(el("div", { className: "vm-seq-row" }, [
-          el("span", { className: "vm-seq-label", textContent: chain }), ...letters,
-        ]));
+        const chainId = `chain-${o.name}-${chain}`;
+        const chainCollapsed = this.collapsedObjects.has(chainId);
+        const chainCaret = el("span", { className: "vm-caret", textContent: chainCollapsed ? "▸" : "▾" });
+        const chainHeader = el("div", {
+          className: "vm-seq-chain-label",
+          onclick: () => {
+            if (this.collapsedObjects.has(chainId)) this.collapsedObjects.delete(chainId);
+            else this.collapsedObjects.add(chainId);
+            if (this.lastScene) this.renderScene(this.lastScene);
+          },
+        }, [chainCaret, el("span", { textContent: ` Chain ${chain}  ` }), el("span", { className: "meta", textContent: `${residues.length} res` })]);
+
+        const chainBlock: (Node | string)[] = [chainHeader];
+        if (!chainCollapsed) {
+          for (let start = 0; start < residues.length; start += CHUNK) {
+            const slice = residues.slice(start, start + CHUNK);
+            const numLabel = `${slice[0].resi}`;
+            const letters = slice.map((r) => {
+              const isSel = sel.has(`${chain}:${r.resi}`);
+              return el("span", {
+                className: "vm-res" + (isSel ? " selected" : ""),
+                textContent: r.code,
+                title: `${r.resn}${r.resi} (chain ${chain})  ·  shift=range, ⌘=add`,
+                onclick: (e: MouseEvent) =>
+                  this.selectResidue(chain, r.resi, { range: e.shiftKey, add: e.metaKey || e.ctrlKey }),
+              });
+            });
+            chainBlock.push(el("div", { className: "vm-seq-line" }, [
+              el("span", { className: "vm-seq-num", textContent: numLabel }),
+              el("span", { className: "vm-seq-letters" }, letters),
+            ]));
+          }
+        }
+        children.push(el("div", { className: "vm-seq-chain" }, chainBlock));
       }
 
       // --- ligands / cofactors ---
       if (ligands.length > 0) {
-        const ligEls = ligands.map((r) =>
-          el("span", {
-            className: "vm-res vm-ligand",
+        const ligEls = ligands.map((r) => {
+          const isSel = sel.has(`${r.chain}:${r.resi}`);
+          return el("span", {
+            className: "vm-res vm-ligand" + (isSel ? " selected" : ""),
             textContent: r.code,
-            title: `${o.name} ${r.resn}${r.resi} (chain ${r.chain})  ·  click to select`,
+            title: `${r.resn}${r.resi} (chain ${r.chain})  ·  click to select`,
             onclick: (e: MouseEvent) =>
               this.selectResidue(r.chain, r.resi, { range: e.shiftKey, add: e.metaKey || e.ctrlKey }),
-          }),
-        );
-        children.push(el("div", { className: "vm-seq-row" }, [
-          el("span", { className: "vm-seq-label vm-lig-label", textContent: "lig" }), ...ligEls,
+          });
+        });
+        children.push(el("div", { className: "vm-lig-row" }, [
+          el("div", { className: "vm-lig-label", textContent: "Ligands" }),
+          el("div", { className: "vm-lig-chips" }, ligEls),
         ]));
       }
     }
@@ -664,8 +692,6 @@ export class UI {
     });
     input.addEventListener("blur", () => finish(true));
   }
-
-  // renderSequence is no longer needed — sequence + ligands are inline in objectBlock.
 
   renderLog(log: LogLine[]): void {
     this.logEl.replaceChildren(

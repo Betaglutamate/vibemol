@@ -80,8 +80,25 @@ def _residues_payload(s: Structure) -> list[dict[str, Any]]:
     return out
 
 
-def object_message(obj: MolObject) -> dict[str, Any]:
+def object_message(obj: MolObject, scene: Scene) -> dict[str, Any]:
     s = obj.structure
+
+    # Build the set of selected (chain, resi) pairs from all named selections.
+    selected_residues: list[list[str | int]] = []
+    union = np.zeros(s.n_atoms, dtype=bool)
+    for masks in scene.selections.values():
+        m = masks.get(obj.name)
+        if m is not None:
+            union |= m
+    if union.any():
+        seen: set[tuple[str, int]] = set()
+        idxs = np.where(union)[0]
+        for i in idxs:
+            key = (s.chain_ids[i], int(s.res_ids[i]))
+            if key not in seen:
+                seen.add(key)
+                selected_residues.append([key[0], key[1]])
+
     return {
         "type": "object",
         "name": obj.name,
@@ -104,6 +121,7 @@ def object_message(obj: MolObject) -> dict[str, Any]:
             "chains": s.chain_ids,
         },
         "residues": _residues_payload(s),
+        "selected_residues": selected_residues,
     }
 
 
@@ -168,7 +186,7 @@ def scene_message(scene: Scene) -> dict[str, Any]:
         "bounding_radius": radius,
         "n_states": n_states,
         "current_state": current_state,
-        "objects": [object_message(o) for o in scene.objects.values()],
+        "objects": [object_message(o, scene) for o in scene.objects.values()],
         "measurement_lines": measurement_lines,
         "labels": labels,
         "selection_points": _selection_points(scene),
