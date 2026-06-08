@@ -93,6 +93,32 @@ class Structure:
         d = np.linalg.norm(self.coords - self.center(), axis=1)
         return float(d.max())
 
+    @staticmethod
+    def concat(parts: list[Structure], name: str = "merged") -> Structure:
+        """Concatenate structures into one, offsetting bond indices."""
+        if not parts:
+            raise ValueError("concat: no structures")
+        offset = 0
+        bonds: list[np.ndarray] = []
+        for p in parts:
+            if p.n_bonds:
+                bonds.append(p.bonds + offset)
+            offset += p.n_atoms
+        coords = np.concatenate([p.coords for p in parts])
+        return Structure(
+            name=name,
+            coords=coords,
+            elements=[e for p in parts for e in p.elements],
+            atom_names=[a for p in parts for a in p.atom_names],
+            res_names=[r for p in parts for r in p.res_names],
+            res_ids=np.concatenate([p.res_ids for p in parts]),
+            chain_ids=[c for p in parts for c in p.chain_ids],
+            b_factors=np.concatenate([p.b_factors for p in parts]),
+            occupancies=np.concatenate([p.occupancies for p in parts]),
+            is_hetatm=np.concatenate([p.is_hetatm for p in parts]),
+            bonds=np.concatenate(bonds) if bonds else np.empty((0, 2), dtype=np.int32),
+        )
+
     def subset(self, keep: np.ndarray) -> Structure:
         """Return a new Structure containing only atoms where ``keep`` is True,
         with bonds restricted to surviving atoms and re-indexed."""

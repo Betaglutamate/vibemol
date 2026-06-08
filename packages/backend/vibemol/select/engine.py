@@ -39,6 +39,7 @@ class EvalContext:
 
     structure: Structure
     named: dict[str, np.ndarray] = field(default_factory=dict)
+    object_name: str = ""  # the object being evaluated (for object-name selectors)
 
 
 # --- tokenizer --------------------------------------------------------------
@@ -108,6 +109,15 @@ class NamedSelection(Node):
         if mask is None:
             return np.zeros(ctx.structure.n_atoms, dtype=bool)
         return mask.copy()
+
+
+@dataclass
+class ObjectSelector(Node):
+    name: str
+
+    def eval(self, ctx: EvalContext) -> np.ndarray:
+        match = ctx.object_name.lower() == self.name.lower()
+        return np.full(ctx.structure.n_atoms, match, dtype=bool)
 
 
 @dataclass
@@ -274,11 +284,14 @@ def _within_mask(coords: np.ndarray, ref: np.ndarray, dist: float) -> np.ndarray
 
 
 class _Parser:
-    def __init__(self, toks: list[_Tok], names: frozenset[str]):
+    def __init__(
+        self, toks: list[_Tok], names: frozenset[str], object_names: frozenset[str]
+    ):
         self.toks = toks
         self.i = 0
         self.names = names
         self._names_lower = {n.lower() for n in names}
+        self._object_names_lower = {n.lower() for n in object_names}
 
     def _peek(self) -> _Tok | None:
         return self.toks[self.i] if self.i < len(self.toks) else None
@@ -380,6 +393,8 @@ class _Parser:
             return ListSelector(sel_field, self._next().value.split("+"))
         if lw in self._names_lower:  # a named selection in scope
             return NamedSelection(word)
+        if lw in self._object_names_lower:  # an object name (all atoms of that object)
+            return ObjectSelector(word)
         raise SelectionError(f"unknown selector: {word!r}")
 
     def _number(self) -> float:
@@ -392,27 +407,36 @@ class _Parser:
             raise SelectionError(f"expected a number, got {tok.value!r}") from e
 
 
-def parse(text: str, names: frozenset[str] = frozenset()) -> Node:
+def parse(
+    text: str,
+    names: frozenset[str] = frozenset(),
+    object_names: frozenset[str] = frozenset(),
+) -> Node:
     """Parse a selection string into an AST (raises :class:`SelectionError`).
 
-    ``names`` are named selections in scope, so they can be referenced by name.
+    ``names`` are named selections in scope and ``object_names`` are loaded
+    object names, so both can be referenced by name in a selection.
     """
     toks = _tokenize(text)
     if not toks:
         return All()
-    return _Parser(toks, names).parse()
+    return _Parser(toks, names, object_names).parse()
 
 
 def select(
     structure: Structure,
     expression: str,
     named: dict[str, np.ndarray] | None = None,
+    *,
+    object_name: str = "",
+    object_names: frozenset[str] = frozenset(),
 ) -> np.ndarray:
     """Evaluate a selection expression to a boolean mask over ``structure``.
 
-    ``named`` maps selection names to boolean masks (over this structure) so
-    expressions like ``color red, sele`` or ``mysel and chain A`` resolve.
+    ``named`` maps selection names to masks; ``object_name`` is the object being
+    evaluated and ``object_names`` the set of loaded names, so expressions like
+    ``color red, sele``, ``mysel and chain A``, or ``mobile and resi 1-20`` resolve.
     """
     named = named or {}
-    node = parse(expression, frozenset(named))
-    return node.eval(EvalContext(structure, named))
+    node = parse(expression, frozenset(named), object_names)
+    return node.eval(EvalContext(structure, named, object_name))

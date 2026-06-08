@@ -52,13 +52,17 @@ class Context:
         Named selections in scope are passed in per object so expressions can
         reference them (e.g. ``color red, sele``)."""
         out: dict[str, np.ndarray] = {}
+        object_names = frozenset(self.scene.objects)
         for name, obj in self.scene.objects.items():
             named = {
                 sel: masks[name]
                 for sel, masks in self.scene.selections.items()
                 if name in masks
             }
-            out[name] = select(obj.structure, expression, named)
+            out[name] = select(
+                obj.structure, expression, named,
+                object_name=name, object_names=object_names,
+            )
         return out
 
     def selected_coords(self, expression: str) -> np.ndarray:

@@ -44,3 +44,17 @@ def vdw_radius(element: str) -> float:
 
 def cpk_color(element: str) -> str:
     return CPK_COLORS.get(element.upper(), DEFAULT_COLOR)
+
+
+# Standard atomic weights (g/mol) for common biomolecular elements.
+ATOMIC_MASS: dict[str, float] = {
+    "H": 1.008, "C": 12.011, "N": 14.007, "O": 15.999, "F": 18.998,
+    "P": 30.974, "S": 32.06, "CL": 35.45, "BR": 79.904, "I": 126.90,
+    "NA": 22.990, "MG": 24.305, "K": 39.098, "CA": 40.078, "FE": 55.845,
+    "ZN": 65.38, "MN": 54.938, "CU": 63.546, "SE": 78.971,
+}
+DEFAULT_MASS = 12.011
+
+
+def atomic_mass(element: str) -> float:
+    return ATOMIC_MASS.get(element.upper(), DEFAULT_MASS)

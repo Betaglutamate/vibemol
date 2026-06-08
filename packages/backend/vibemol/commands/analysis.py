@@ -5,9 +5,21 @@ from __future__ import annotations
 
 import numpy as np
 
-from ..analysis import angle, apply_transform, dihedral, distance, kabsch, polar_contacts, sasa
+from ..analysis import (
+    align_structures,
+    angle,
+    apply_transform,
+    dihedral,
+    distance,
+    kabsch,
+    polar_contacts,
+    rmsd,
+    sasa,
+    super_structures,
+)
 from ..color import color_values
-from ..model.scene import Measurement
+from ..model.scene import Measurement, MolObject
+from ..model.structure import Structure
 from ..select import select
 from .registry import CommandError, CommandResult, Context, command
 
@@ -128,21 +140,77 @@ def cmd_interface(ctx: Context, args: list[str]) -> CommandResult:
     )
 
 
-@command("align", "super")
-def cmd_align(ctx: Context, args: list[str]) -> CommandResult:
+def _two_objects(ctx: Context, args: list[str], verb: str) -> tuple[MolObject, MolObject]:
     if len(args) < 2:
-        raise CommandError("usage: align <mobile_object>, <target_object>")
-    mobile_name, target_name = args[0].strip(), args[1].strip()
-    if mobile_name not in ctx.scene.objects or target_name not in ctx.scene.objects:
-        raise CommandError("align: both arguments must be loaded object names")
-    mobile = ctx.scene.objects[mobile_name]
-    target = ctx.scene.objects[target_name]
+        raise CommandError(f"usage: {verb} <mobile_object>, <target_object>")
+    mob_name, tgt_name = args[0].strip(), args[1].strip()
+    if mob_name not in ctx.scene.objects or tgt_name not in ctx.scene.objects:
+        raise CommandError(f"{verb}: both arguments must be loaded object names")
+    return ctx.scene.objects[mob_name], ctx.scene.objects[tgt_name]
 
-    m_ca = mobile.structure.coords[select(mobile.structure, "name CA")]
-    t_ca = target.structure.coords[select(target.structure, "name CA")]
-    if m_ca.shape[0] < 3 or t_ca.shape[0] < 3:
-        raise CommandError("align: need >= 3 CA atoms in each object")
-    n = min(m_ca.shape[0], t_ca.shape[0])  # v1: positional CA pairing
-    rot, trans, err = kabsch(m_ca[:n], t_ca[:n])
+
+@command("align")
+def cmd_align(ctx: Context, args: list[str]) -> CommandResult:
+    """Sequence-based superposition (Needleman-Wunsch pairing + iterative fit)."""
+    mobile, target = _two_objects(ctx, args, "align")
+    try:
+        rot, trans, err, n, cycles = align_structures(mobile.structure, target.structure)
+    except ValueError as e:
+        raise CommandError(str(e)) from e
     mobile.structure.coords = apply_transform(mobile.structure.coords, rot, trans)
-    return CommandResult(log=f"align {mobile_name} -> {target_name}: RMSD {err:.3f} A ({n} CA)")
+    return CommandResult(
+        log=f"align {mobile.name} -> {target.name}: RMSD {err:.3f} A, {n} atoms, {cycles} cycles"
+    )
+
+
+@command("super")
+def cmd_super(ctx: Context, args: list[str]) -> CommandResult:
+    """Sequence-independent structural superposition (PCA-seeded ICP)."""
+    mobile, target = _two_objects(ctx, args, "super")
+    try:
+        rot, trans, err, n, _ = super_structures(mobile.structure, target.structure)
+    except ValueError as e:
+        raise CommandError(str(e)) from e
+    mobile.structure.coords = apply_transform(mobile.structure.coords, rot, trans)
+    return CommandResult(log=f"super {mobile.name} -> {target.name}: RMSD {err:.3f} A, {n} atoms")
+
+
+def _matched_atoms(mob: Structure, tgt: Structure) -> tuple[np.ndarray, np.ndarray]:
+    """Coords of atoms sharing (chain, resid, atom name) between two structures."""
+    tgt_index: dict[tuple[str, int, str], int] = {}
+    for i in range(tgt.n_atoms):
+        tgt_index[(tgt.chain_ids[i], int(tgt.res_ids[i]), tgt.atom_names[i].upper())] = i
+    mob_pts: list[np.ndarray] = []
+    tgt_pts: list[np.ndarray] = []
+    for i in range(mob.n_atoms):
+        key = (mob.chain_ids[i], int(mob.res_ids[i]), mob.atom_names[i].upper())
+        j = tgt_index.get(key)
+        if j is not None:
+            mob_pts.append(mob.coords[i])
+            tgt_pts.append(tgt.coords[j])
+    if len(mob_pts) < 3:
+        raise CommandError("need >= 3 atoms with matching chain/residue/name")
+    return np.array(mob_pts), np.array(tgt_pts)
+
+
+@command("fit")
+def cmd_fit(ctx: Context, args: list[str]) -> CommandResult:
+    """Fit mobile onto target over identically-named matched atoms (then move it)."""
+    mobile, target = _two_objects(ctx, args, "fit")
+    mob, tgt = _matched_atoms(mobile.structure, target.structure)
+    rot, trans, err = kabsch(mob, tgt)
+    mobile.structure.coords = apply_transform(mobile.structure.coords, rot, trans)
+    return CommandResult(
+        log=f"fit {mobile.name} -> {target.name}: RMSD {err:.3f} A, {mob.shape[0]} atoms"
+    )
+
+
+@command("rms_cur", "rms")
+def cmd_rms_cur(ctx: Context, args: list[str]) -> CommandResult:
+    """RMSD over matched atoms at current positions (no superposition)."""
+    mobile, target = _two_objects(ctx, args, "rms_cur")
+    mob, tgt = _matched_atoms(mobile.structure, target.structure)
+    return CommandResult(
+        log=f"rms_cur {mobile.name} vs {target.name}: {rmsd(mob, tgt):.3f} A, {mob.shape[0]} atoms",
+        scene_changed=False,
+    )

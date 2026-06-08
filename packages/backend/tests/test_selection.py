@@ -83,6 +83,17 @@ def test_selection_errors(expr: str) -> None:
         select(fixture(), expr)
 
 
+def test_object_name_selector() -> None:
+    s = fixture()
+    # An object-name token selects all atoms when evaluating that object, none otherwise.
+    assert int(select(s, "mol", object_name="mol", object_names=frozenset({"mol"})).sum()) == 10
+    assert int(select(s, "mol", object_name="other", object_names=frozenset({"mol"})).sum()) == 0
+    # Combine an object name with a property selector.
+    assert int(
+        select(s, "mol and chain A", object_name="mol", object_names=frozenset({"mol"})).sum()
+    ) == 9
+
+
 def test_named_selection_reference() -> None:
     s = fixture()
     # A named selection in scope can be referenced by name and combined.

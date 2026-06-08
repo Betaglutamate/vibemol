@@ -4,7 +4,7 @@ Importing this package registers the core commands (see :mod:`.core`). Use
 :func:`dispatch` to run a command line against a :class:`Context`.
 """
 
-from . import analysis, core  # noqa: F401 - registers commands as a side effect
+from . import analysis, core, edit  # noqa: F401 - registers commands as a side effect
 from .registry import (
     CommandError,
     CommandResult,

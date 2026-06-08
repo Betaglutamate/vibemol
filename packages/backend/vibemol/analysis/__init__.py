@@ -4,6 +4,8 @@ alignment/RMSD (Kabsch)."""
 from .align import apply_transform, kabsch, rmsd
 from .measure import angle, dihedral, distance, polar_contacts
 from .sasa import sasa
+from .sequence import needleman_wunsch
+from .superpose import align_structures, iterative_fit, super_structures
 
 __all__ = [
     "kabsch",
@@ -14,4 +16,8 @@ __all__ = [
     "dihedral",
     "polar_contacts",
     "sasa",
+    "needleman_wunsch",
+    "iterative_fit",
+    "align_structures",
+    "super_structures",
 ]
