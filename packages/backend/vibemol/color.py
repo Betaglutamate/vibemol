@@ -62,6 +62,34 @@ def color_by_chain(structure: Structure) -> np.ndarray:
     return out
 
 
+def color_by_chain_ss(structure: Structure) -> np.ndarray:
+    """Chain coloring with subtle secondary-structure tinting.
+
+    Helices are warmed slightly (shifted toward pink), strands are cooled
+    slightly (shifted toward gold), and loops keep the base chain colour.
+    The shift is small enough that chain identity remains the dominant signal,
+    but SS elements become visually distinguishable.
+    """
+    from .geometry.cartoon import assign_chain_ss  # noqa: PLC0415
+
+    base = color_by_chain(structure)
+    ss_by_res = assign_chain_ss(structure)
+
+    # Very subtle tint vectors — just enough to see the difference.
+    helix_tint = np.array([0.08, -0.04, -0.06], dtype=np.float32)   # warmer/pink
+    strand_tint = np.array([-0.04, 0.02, 0.08], dtype=np.float32)   # cooler/blue-ish
+
+    out = base.copy()
+    for i in range(structure.n_atoms):
+        key = (structure.chain_ids[i], int(structure.res_ids[i]))
+        ss = ss_by_res.get(key, "L")
+        if ss == "H":
+            out[i] = np.clip(base[i] + helix_tint, 0.0, 1.0)
+        elif ss == "S":
+            out[i] = np.clip(base[i] + strand_tint, 0.0, 1.0)
+    return out
+
+
 def color_spectrum(structure: Structure, *, by: str = "b") -> np.ndarray:
     """Rainbow spectrum (blue=low -> red=high) over b-factor or occupancy."""
     return color_values(

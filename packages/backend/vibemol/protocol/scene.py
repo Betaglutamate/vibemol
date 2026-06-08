@@ -31,16 +31,22 @@ _NUC1 = {
 
 
 def _residue_code(resn: str) -> str | None:
-    """One-letter code for a residue, or None for non-polymer (water/ligand/ion)."""
+    """One-letter code for a residue, or None for water/ion only."""
     key = resn.upper()
     return _AA3to1.get(key) or _NUC1.get(key)
 
 
-def _residues_payload(s: Structure) -> list[dict[str, Any]]:
-    """Ordered polymer residues (by first appearance) with one-letter codes.
+# Solvent residue names — these are hidden from the sequence display.
+_SOLVENT_RESN = {"HOH", "WAT", "TIP", "SOL", "TIP3", "TIP4", "SPC"}
 
-    Non-polymer residues (waters, ligands, ions) are omitted so the sequence
-    viewer shows a clean protein/nucleic sequence rather than runs of 'X'."""
+
+def _residues_payload(s: Structure) -> list[dict[str, Any]]:
+    """Ordered residues with one-letter codes for the sequence viewer.
+
+    Polymer residues get their standard one-letter code. Non-polymer HETATM
+    residues (ligands, cofactors) are included with their three-letter name
+    as the code and ``"kind": "ligand"`` so the frontend can style them
+    distinctly. Waters are omitted."""
     out: list[dict[str, Any]] = []
     seen: set[tuple[str, int]] = set()
     for i in range(s.n_atoms):
@@ -48,17 +54,29 @@ def _residues_payload(s: Structure) -> list[dict[str, Any]]:
         if key in seen:
             continue
         seen.add(key)
-        code = _residue_code(s.res_names[i])
-        if code is None:
-            continue  # skip waters / ligands / ions
-        out.append(
-            {
-                "chain": s.chain_ids[i],
-                "resi": int(s.res_ids[i]),
-                "resn": s.res_names[i],
-                "code": code,
-            }
-        )
+        resn = s.res_names[i].upper()
+        code = _residue_code(resn)
+        if code is not None:
+            out.append(
+                {
+                    "chain": s.chain_ids[i],
+                    "resi": int(s.res_ids[i]),
+                    "resn": s.res_names[i],
+                    "code": code,
+                    "kind": "polymer",
+                }
+            )
+        elif resn not in _SOLVENT_RESN and s.is_hetatm[i]:
+            # Ligand / cofactor / ion — include with 3-letter name.
+            out.append(
+                {
+                    "chain": s.chain_ids[i],
+                    "resi": int(s.res_ids[i]),
+                    "resn": s.res_names[i],
+                    "code": s.res_names[i],
+                    "kind": "ligand",
+                }
+            )
     return out
 
 

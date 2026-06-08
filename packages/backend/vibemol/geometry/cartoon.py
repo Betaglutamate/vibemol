@@ -20,8 +20,8 @@ import numpy as np
 from ..model.structure import Structure
 from ..protocol.geometry import cylinders_group, mesh_group
 
-_SAMPLES_PER_SEGMENT = 8
-_CROSS_SECTION_POINTS = 8
+_SAMPLES_PER_SEGMENT = 16
+_CROSS_SECTION_POINTS = 16
 
 # Elliptical cross-section half-extents (width along normal, thickness along binormal).
 _SS_SHAPE = {
@@ -170,8 +170,8 @@ def _residue_shapes(ss: list[str], is_protein: bool = True) -> tuple[np.ndarray,
     for i, s in enumerate(ss):
         w, h = _SS_SHAPE[s]
         width[i], thick[i] = w, h
-    # Arrowhead: widen the last residue of each strand run; the following coil's
-    # narrow width then tapers it to a point over the next segment.
+    # Arrowhead: gradually flare the last 2 residues of each strand run for a
+    # smooth arrow shape, rather than an abrupt jump.
     i = 0
     while i < n:
         if ss[i] != "S":
@@ -180,9 +180,75 @@ def _residue_shapes(ss: list[str], is_protein: bool = True) -> tuple[np.ndarray,
         j = i
         while j < n and ss[j] == "S":
             j += 1
-        width[j - 1] = 1.9  # arrow base
+        run_len = j - i
+        if run_len >= 2:
+            width[j - 2] = 1.5   # pre-flare
+        width[j - 1] = 2.0      # arrow tip (widest)
         i = j
     return width, thick
+
+
+def _smooth_loop_trace(ca: np.ndarray, ss: list[str], window: int = 3) -> np.ndarray:
+    """Smooth the CA positions of loop ('L') residues using a moving-average window.
+
+    Helix and strand positions are kept exactly; loop positions are averaged
+    over *window* neighbours (clamped at run boundaries). This reduces visual
+    "frizz" in coil regions, matching PyMOL's ``cartoon_smooth_loops`` feature.
+    """
+    out = ca.copy()
+    n = len(ss)
+    hw = window // 2
+    for i in range(n):
+        if ss[i] != "L":
+            continue
+        lo = max(0, i - hw)
+        hi = min(n, i + hw + 1)
+        out[i] = ca[lo:hi].mean(axis=0)
+    return out
+
+
+def _flatten_sheet_normals(
+    normals: np.ndarray, binormals: np.ndarray,
+    frac: np.ndarray, ss: list[str],
+) -> None:
+    """Constrain ribbon normals in β-strand regions to a common sheet plane.
+
+    For each strand run, the average normal is computed and all normals within
+    that run are projected onto it. This produces flat, readable arrows that
+    lie cleanly in a plane, matching PyMOL's ``cartoon_flat_sheets`` look.
+    Operates in-place on *normals* and *binormals*.
+    """
+    n_res = len(ss)
+    i = 0
+    while i < n_res:
+        if ss[i] != "S":
+            i += 1
+            continue
+        j = i
+        while j < n_res and ss[j] == "S":
+            j += 1
+        # Collect sample indices that fall within this strand run.
+        mask = (frac >= i) & (frac <= j - 1 + 0.999)
+        if not np.any(mask):
+            i = j
+            continue
+        avg_normal = normals[mask].mean(axis=0)
+        ln = np.linalg.norm(avg_normal)
+        if ln < 1e-6:
+            i = j
+            continue
+        avg_normal /= ln
+        # Assign the average normal and recompute binormals.
+        normals[mask] = avg_normal
+        tangents = np.zeros_like(normals[mask])
+        idxs = np.flatnonzero(mask)
+        for si_idx, si in enumerate(idxs):
+            tangents[si_idx] = np.cross(avg_normal, binormals[si])
+            bl = np.linalg.norm(tangents[si_idx])
+            if bl > 1e-6:
+                tangents[si_idx] /= bl
+        binormals[mask] = np.cross(tangents, avg_normal)
+        i = j
 
 
 def _catmull_rom(points: np.ndarray, samples: int) -> tuple[np.ndarray, np.ndarray]:
@@ -255,10 +321,21 @@ def build_cartoon_mesh(
         ca = structure.coords[np.array(ca_idx)]
         res_colors = colors[np.array(ca_idx)]
         ss = _assign_ss(ca) if is_protein else ["L"] * len(ca_idx)
+        # Smooth loop regions to reduce visual noise (like PyMOL smooth_loops).
+        if is_protein:
+            ca = _smooth_loop_trace(ca, ss)
         width_res, thick_res = _residue_shapes(ss, is_protein)
         samples, frac = _catmull_rom(ca, _SAMPLES_PER_SEGMENT)
         normals, binormals = _frames(samples)
+        # Flatten β-sheet normals so strand arrows lie in a clean plane.
+        if is_protein:
+            _flatten_sheet_normals(normals, binormals, frac, ss)
         n_samples = samples.shape[0]
+
+        # Highlight dimming factor for helix/strand interior face.
+        # Bottom-half vertices (sin_a < 0) on flat ribbons are darkened for depth.
+        _HIGHLIGHT_DIM = 0.70
+        interior = sin_a < 0  # which cross-section vertices are on the interior
 
         ring_pos = np.empty((n_samples, m, 3), dtype=np.float32)
         ring_norm = np.empty((n_samples, m, 3), dtype=np.float32)
@@ -277,7 +354,11 @@ def build_cartoon_mesh(
             vnormal = (cos_a[:, None] * h) * nrm + (sin_a[:, None] * w) * bnm
             ring_pos[si] = samples[si] + offset
             ring_norm[si] = vnormal / (np.linalg.norm(vnormal, axis=1, keepdims=True) + 1e-9)
+            # Apply interior highlight dimming for helices and strands.
+            lo_ss = ss[min(lo, len(ss) - 1)]
             ring_col[si] = col
+            if is_protein and lo_ss in ("H", "S"):
+                ring_col[si, interior] *= _HIGHLIGHT_DIM
 
         # Triangulate consecutive rings into quads.
         idx: list[int] = []
@@ -337,6 +418,90 @@ def build_nucleic_rungs(
         return None
     radii = np.full(len(starts), 0.30, dtype=np.float32)
     return cylinders_group(np.array(starts), np.array(ends), radii, np.array(cols))
+
+
+# Atom names that form the purine (A/G) and pyrimidine (C/T/U) base rings.
+_PURINE_RING = ["N9", "C8", "N7", "C5", "C6", "N1", "C2", "N3", "C4"]
+_PYRIMIDINE_RING = ["N1", "C2", "N3", "C4", "C5", "C6"]
+
+
+def build_nucleic_base_rings(
+    structure: Structure, mask: np.ndarray, colors: np.ndarray
+) -> dict[str, Any] | None:
+    """Filled polygons for each nucleotide's base ring (PyMOL ring_mode 3 style).
+
+    Renders purine 9-membered and pyrimidine 6-membered base rings as flat
+    colored triangulated polygons, giving DNA/RNA a distinctive look with
+    clearly visible base planes. Returns a mesh draw group, or None."""
+    by_res: dict[tuple[str, int], dict[str, int]] = {}
+    for i in range(structure.n_atoms):
+        if not mask[i]:
+            continue
+        key = (structure.chain_ids[i], int(structure.res_ids[i]))
+        by_res.setdefault(key, {}).setdefault(structure.atom_names[i].upper(), i)
+
+    all_pos: list[np.ndarray] = []
+    all_norm: list[np.ndarray] = []
+    all_col: list[np.ndarray] = []
+    all_idx: list[np.ndarray] = []
+    vert_offset = 0
+
+    for names in by_res.values():
+        # Try purine ring first, then pyrimidine.
+        ring_atoms = None
+        for ring_def in (_PURINE_RING, _PYRIMIDINE_RING):
+            idxs = [names[nm] for nm in ring_def if nm in names]
+            if len(idxs) == len(ring_def):
+                ring_atoms = idxs
+                break
+        if ring_atoms is None:
+            continue
+
+        ring_coords = structure.coords[ring_atoms]
+        n_verts = len(ring_atoms)
+
+        # Compute face normal from first 3 vertices.
+        v1 = ring_coords[1] - ring_coords[0]
+        v2 = ring_coords[2] - ring_coords[0]
+        face_normal = np.cross(v1, v2)
+        fn_len = np.linalg.norm(face_normal)
+        if fn_len < 1e-6:
+            continue
+        face_normal = (face_normal / fn_len).astype(np.float32)
+
+        # Color from the first ring atom.
+        col = colors[ring_atoms[0]]
+
+        # Create two-sided polygon: duplicate verts with flipped normals.
+        pos = np.vstack([ring_coords, ring_coords]).astype(np.float32)
+        nrm = np.vstack([
+            np.tile(face_normal, (n_verts, 1)),
+            np.tile(-face_normal, (n_verts, 1)),
+        ]).astype(np.float32)
+        col_arr = np.tile(col, (n_verts * 2, 1)).astype(np.float32)
+
+        # Fan triangulation for front face.
+        idx = []
+        for k in range(1, n_verts - 1):
+            idx += [0, k, k + 1]
+        # Back face (reversed winding, offset by n_verts).
+        for k in range(1, n_verts - 1):
+            idx += [n_verts, n_verts + k + 1, n_verts + k]
+
+        all_pos.append(pos)
+        all_norm.append(nrm)
+        all_col.append(col_arr)
+        all_idx.append(np.array(idx, dtype=np.uint32) + vert_offset)
+        vert_offset += n_verts * 2
+
+    if not all_pos:
+        return None
+    return mesh_group(
+        np.concatenate(all_pos),
+        np.concatenate(all_norm),
+        np.concatenate(all_col),
+        np.concatenate(all_idx),
+    )
 
 
 def has_protein_backbone(structure: Structure) -> bool:

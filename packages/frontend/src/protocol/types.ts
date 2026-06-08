@@ -77,6 +77,7 @@ export interface Residue {
   resi: number;
   resn: string;
   code: string;
+  kind?: "polymer" | "ligand";
 }
 
 export interface RawObject {

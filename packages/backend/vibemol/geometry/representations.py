@@ -20,7 +20,7 @@ import numpy as np
 from ..model.scene import MolObject
 from ..model.structure import Structure
 from ..protocol.geometry import cylinders_group, lines_group, points_group, spheres_group
-from .cartoon import build_cartoon_mesh, build_nucleic_rungs
+from .cartoon import build_cartoon_mesh, build_nucleic_base_rings, build_nucleic_rungs
 
 _STICK_RADIUS = 0.20
 _BALL_STICK_BOND_RADIUS = 0.13
@@ -68,6 +68,13 @@ def build_groups(obj: MolObject) -> list[dict[str, Any]]:
     colors = obj.colors
     vdw = s.vdw_radii()
     groups: list[dict[str, Any]] = []
+    # Stick/ball_and_stick coloring: carbons keep the object color (chain/cartoon
+    # color) so they blend with the cartoon ribbon; heteroatoms (N, O, S, etc.)
+    # use CPK element colors so atoms are easily distinguishable.
+    cpk = s.cpk_colors_rgb()
+    stick_colors = colors.copy()
+    is_carbon = np.array([e.upper() == "C" for e in s.elements], dtype=bool)
+    stick_colors[~is_carbon] = cpk[~is_carbon]
 
     for kind in obj.active_kinds():
         mask = obj.rep_masks[kind]
@@ -77,20 +84,20 @@ def build_groups(obj: MolObject) -> list[dict[str, Any]]:
             groups.append(spheres_group(coords[idx], vdw[idx], colors[idx]))
 
         elif kind == "ball_and_stick":
-            groups.append(spheres_group(coords[idx], vdw[idx] * _BALL_SCALE, colors[idx]))
+            groups.append(spheres_group(coords[idx], vdw[idx] * _BALL_SCALE, stick_colors[idx]))
             bonds = _bonds_within(s, mask)
             if bonds.shape[0]:
                 groups.append(
-                    _half_bond_cylinders(coords, colors, bonds, _BALL_STICK_BOND_RADIUS)
+                    _half_bond_cylinders(coords, stick_colors, bonds, _BALL_STICK_BOND_RADIUS)
                 )
 
         elif kind == "sticks":
             bonds = _bonds_within(s, mask)
             if bonds.shape[0]:
-                groups.append(_half_bond_cylinders(coords, colors, bonds, _STICK_RADIUS))
+                groups.append(_half_bond_cylinders(coords, stick_colors, bonds, _STICK_RADIUS))
                 joints = np.unique(bonds.reshape(-1))
                 radii = np.full(joints.shape[0], _STICK_RADIUS, dtype=np.float32)
-                groups.append(spheres_group(coords[joints], radii, colors[joints]))
+                groups.append(spheres_group(coords[joints], radii, stick_colors[joints]))
 
         elif kind == "lines":
             bonds = _bonds_within(s, mask)
@@ -119,6 +126,9 @@ def build_groups(obj: MolObject) -> list[dict[str, Any]]:
             rungs = build_nucleic_rungs(s, mask, colors)  # base ladder for nucleic acids
             if rungs is not None:
                 groups.append(rungs)
+            base_rings = build_nucleic_base_rings(s, mask, colors)  # filled base planes
+            if base_rings is not None:
+                groups.append(base_rings)
 
         elif kind == "surface":
             from .surface import build_surface_mesh  # noqa: PLC0415

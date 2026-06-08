@@ -84,6 +84,8 @@ export class UI {
   private lastScene: DecodedScene | null = null;
   // Anchor residue for shift-range selection (set by the last plain/add click).
   private selAnchor: { chain: string; resi: number } | null = null;
+  // Track collapsed state for per-object collapsible sections.
+  private collapsedObjects = new Set<string>();
   private history: string[] = [];
   private historyIdx = 0;
 
@@ -605,10 +607,35 @@ export class UI {
   private renderSequence(scene: DecodedScene): void {
     const rows: Node[] = [];
     for (const obj of scene.objects) {
+      // --- collapsible header for each object ---
+      const objId = `seq-${obj.name}`;
+      const collapsed = this.collapsedObjects.has(objId);
+      const toggle = el("span", {
+        className: "vm-caret" + (collapsed ? " collapsed" : ""),
+        textContent: collapsed ? "▸" : "▾",
+      });
+      const header = el("div", {
+        className: "vm-seq-header",
+        onclick: () => {
+          if (this.collapsedObjects.has(objId)) this.collapsedObjects.delete(objId);
+          else this.collapsedObjects.add(objId);
+          if (this.lastScene) this.renderSequence(this.lastScene);
+        },
+      }, [toggle, el("span", { textContent: ` ${obj.name}` })]);
+      rows.push(header);
+
+      if (collapsed) continue;
+
+      // --- polymer chains ---
       const byChain = new Map<string, typeof obj.residues>();
+      const ligands: typeof obj.residues = [];
       for (const r of obj.residues) {
-        if (!byChain.has(r.chain)) byChain.set(r.chain, []);
-        byChain.get(r.chain)!.push(r);
+        if (r.kind === "ligand") {
+          ligands.push(r);
+        } else {
+          if (!byChain.has(r.chain)) byChain.set(r.chain, []);
+          byChain.get(r.chain)!.push(r);
+        }
       }
       for (const [chain, residues] of byChain) {
         const letters = residues.map((r) =>
@@ -620,7 +647,23 @@ export class UI {
           }),
         );
         rows.push(el("div", { className: "vm-seq-row" }, [
-          el("span", { className: "vm-seq-label", textContent: `${obj.name}/${chain}` }), ...letters,
+          el("span", { className: "vm-seq-label", textContent: `${chain}` }), ...letters,
+        ]));
+      }
+
+      // --- ligands / cofactors ---
+      if (ligands.length > 0) {
+        const ligEls = ligands.map((r) =>
+          el("span", {
+            className: "vm-res vm-ligand",
+            textContent: r.code,
+            title: `${obj.name} ${r.resn}${r.resi} (chain ${r.chain})  ·  click to select`,
+            onclick: (e: MouseEvent) =>
+              this.selectResidue(r.chain, r.resi, { range: e.shiftKey, add: e.metaKey || e.ctrlKey }),
+          }),
+        );
+        rows.push(el("div", { className: "vm-seq-row" }, [
+          el("span", { className: "vm-seq-label vm-lig-label", textContent: "lig" }), ...ligEls,
         ]));
       }
     }

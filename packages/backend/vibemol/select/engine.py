@@ -52,6 +52,16 @@ _TOKEN_RE = re.compile(
 _KEYWORD_ZERO = {  # selectors taking no argument
     "all", "none", "hydro", "hydrogens", "hetatm",
     "polymer", "solvent", "backbone", "sidechain",
+    "organic", "inorganic", "metals", "water", "ligand",
+}
+
+# Metallic elements recognized by the ``metals`` keyword.
+_METAL_ELEMENTS = {
+    "LI", "BE", "NA", "MG", "AL", "K", "CA", "SC", "TI", "V", "CR", "MN",
+    "FE", "CO", "NI", "CU", "ZN", "GA", "RB", "SR", "Y", "ZR", "NB", "MO",
+    "RU", "RH", "PD", "AG", "CD", "IN", "SN", "CS", "BA", "LA", "CE", "PR",
+    "ND", "SM", "EU", "GD", "TB", "DY", "HO", "ER", "TM", "YB", "LU", "HF",
+    "TA", "W", "RE", "OS", "IR", "PT", "AU", "HG", "TL", "PB", "BI", "U",
 }
 _KEYWORD_ARG = {  # selectors taking a +-separated value list
     "resn", "resi", "chain", "name", "elem", "element", "index", "id", "ss",
@@ -142,6 +152,18 @@ class Keyword(Node):
         if self.name == "sidechain":
             bb = np.isin(names, ["N", "CA", "C", "O"])
             return ~bb & ~(elems == "H") & ~s.is_hetatm
+        if self.name in ("water",):
+            return solvent
+        metal_mask = np.array([e.upper() in _METAL_ELEMENTS for e in s.elements])
+        if self.name == "metals":
+            return metal_mask
+        if self.name == "inorganic":
+            return s.is_hetatm & (metal_mask | ~np.array(
+                [e.upper() in ("H", "C", "N", "O", "S", "P", "F", "CL", "BR", "I", "SE")
+                 for e in s.elements]))
+        if self.name in ("organic", "ligand"):
+            return s.is_hetatm & ~solvent & ~metal_mask & ~np.array(
+                [e.upper() in _METAL_ELEMENTS for e in s.elements])
         raise SelectionError(f"unknown keyword: {self.name}")
 
 

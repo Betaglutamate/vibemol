@@ -47,19 +47,58 @@ class MolObject:
             self.colors = self.structure.cpk_colors_rgb()
 
     def apply_default_representation(self) -> None:
-        """PyMOL-like default: cartoon for proteins/nucleic acids; otherwise lines
-        for bonded atoms with nonbonded points for the rest."""
-        from ..color import color_by_chain  # noqa: PLC0415
+        """PyMOL-like default representation:
+
+        * **Proteins/nucleic acids** → cartoon, colored by chain+SS
+        * **Organic ligands** (HETATM, not water/metal) → sticks, CPK colors
+        * **Ions & metals** → nonbonded crosses, CPK colors
+        * **Waters** → hidden by default (can be shown with ``show nonbonded, solvent``)
+        """
+        from ..color import color_by_chain_ss  # noqa: PLC0415
         from ..geometry.cartoon import has_cartoon_backbone  # noqa: PLC0415
 
-        n = self.structure.n_atoms
+        s = self.structure
+        n = s.n_atoms
+
+        # Classify atoms.
+        solvent = np.array(
+            [r.upper() in ("HOH", "WAT", "TIP", "SOL") for r in s.res_names], dtype=bool
+        )
+        metal_elems = {
+            "LI", "BE", "NA", "MG", "AL", "K", "CA", "SC", "TI", "V", "CR", "MN",
+            "FE", "CO", "NI", "CU", "ZN", "GA", "RB", "SR", "MO", "AG", "CD", "PT",
+            "AU", "HG", "PB", "U",
+        }
+        is_metal = np.array([e.upper() in metal_elems for e in s.elements], dtype=bool)
+        is_ion = s.is_hetatm & (is_metal | np.array(
+            [r.upper() in ("CL", "BR", "IOD", "SO4", "PO4", "NO3") for r in s.res_names],
+            dtype=bool,
+        ))
+        organic_ligand = s.is_hetatm & ~solvent & ~is_ion
+
         bonded = np.zeros(n, dtype=bool)
-        if self.structure.n_bonds:
-            bonded[self.structure.bonds.reshape(-1)] = True
-        if has_cartoon_backbone(self.structure):
-            self.rep_masks["cartoon"] = np.ones(n, dtype=bool)
-            # Color by chain so protein and nucleic chains are visually distinct.
-            self.colors = color_by_chain(self.structure)
+        if s.n_bonds:
+            bonded[s.bonds.reshape(-1)] = True
+
+        if has_cartoon_backbone(s):
+            # Cartoon for polymer atoms only (not HETATM).
+            polymer = ~s.is_hetatm
+            self.rep_masks["cartoon"] = polymer.copy()
+
+            # Organic ligands as sticks (bonded) + nonbonded (unbonded ligand atoms).
+            ligand_bonded = organic_ligand & bonded
+            ligand_unbonded = organic_ligand & ~bonded
+            self.rep_masks["sticks"] = ligand_bonded
+            self.rep_masks["nonbonded"] |= ligand_unbonded
+
+            # Metal ions & inorganic ions as nonbonded crosses.
+            self.rep_masks["nonbonded"] |= is_ion
+
+            # Waters hidden by default (all rep masks stay False).
+
+            # Coloring: chain+SS for polymer, CPK for everything else.
+            self.colors = color_by_chain_ss(s)
+            self.colors[s.is_hetatm] = s.cpk_colors_rgb()[s.is_hetatm]
         else:
             self.rep_masks["lines"] = bonded.copy()
             self.rep_masks["nonbonded"] = ~bonded

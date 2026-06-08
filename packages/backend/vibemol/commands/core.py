@@ -10,6 +10,7 @@ import numpy as np
 
 from ..color import (
     color_by_chain,
+    color_by_chain_ss,
     color_by_charge,
     color_by_element,
     color_by_hydrophobicity,
@@ -33,6 +34,8 @@ _COLOR_SCHEMES = {
     "cpk": color_by_element,
     "element": color_by_element,
     "bychain": color_by_chain,
+    "bychainss": color_by_chain_ss,
+    "chainss": color_by_chain_ss,
     "spectrum": lambda s: color_spectrum(s, by="b"),
     "hydrophobicity": color_by_hydrophobicity,
     "hydro": color_by_hydrophobicity,
@@ -325,4 +328,8 @@ def cmd_remove(ctx: Context, args: list[str]) -> CommandResult:
             new.rep_masks[kind] = obj.rep_masks[kind][keep]
         new.colors = obj.colors[keep]
         ctx.scene.objects[name] = new
+        # Update named selection masks so they match the new atom count.
+        for masks in ctx.scene.selections.values():
+            if name in masks:
+                masks[name] = masks[name][keep]
     return CommandResult(log=f"removed {removed} atoms")

@@ -5,6 +5,7 @@ import {
   Color,
   CylinderGeometry,
   DirectionalLight,
+  Fog,
   Group,
   InstancedMesh,
   LineBasicMaterial,
@@ -12,7 +13,7 @@ import {
   Material,
   Matrix4,
   Mesh,
-  MeshStandardMaterial,
+  MeshPhysicalMaterial,
   Object3D,
   CanvasTexture,
   DoubleSide,
@@ -42,8 +43,8 @@ import { OutputPass } from "three/addons/postprocessing/OutputPass.js";
 
 import type { DecodedScene, DecodedGroup, Label } from "../protocol/types";
 
-const UNIT_SPHERE = new SphereGeometry(1, 20, 14);
-const UNIT_CYLINDER = new CylinderGeometry(1, 1, 1, 12, 1, true); // along +Y
+const UNIT_SPHERE = new SphereGeometry(1, 32, 24);
+const UNIT_CYLINDER = new CylinderGeometry(1, 1, 1, 20, 1, true); // along +Y
 const Y_AXIS = new Vector3(0, 1, 0);
 
 // The Phase 1 renderer: draws a whole scene of objects, each made of draw groups
@@ -95,10 +96,14 @@ export class Viewer {
     this.controls = new OrbitControls(this.camera, this.renderer.domElement);
     this.controls.enableDamping = true;
 
-    this.scene.add(new AmbientLight(0xffffff, 0.6));
-    const key = new DirectionalLight(0xffffff, 0.85);
+    this.scene.add(new AmbientLight(0xffffff, 0.55));
+    const key = new DirectionalLight(0xffffff, 0.9);
     key.position.set(1, 1, 1);
     this.scene.add(key);
+    // Fill light from the opposite side for softer shadows and depth.
+    const fill = new DirectionalLight(0xffffff, 0.3);
+    fill.position.set(-1, -0.5, -0.5);
+    this.scene.add(fill);
 
     window.addEventListener("resize", this.onResize);
     const canvas = this.renderer.domElement;
@@ -155,9 +160,9 @@ export class Viewer {
     const composer = new EffectComposer(this.renderer);
     composer.addPass(new RenderPass(this.scene, this.camera));
     const ssao = new SSAOPass(this.scene, this.camera, w, h);
-    ssao.kernelRadius = 8;
-    ssao.minDistance = 0.002;
-    ssao.maxDistance = 0.1;
+    ssao.kernelRadius = 6;
+    ssao.minDistance = 0.001;
+    ssao.maxDistance = 0.08;
     composer.addPass(ssao);
     composer.addPass(new OutputPass());
     this.composer = composer;
@@ -173,6 +178,9 @@ export class Viewer {
     this.camera.position.copy(target).addScaledVector(dir, dist * 1.3);
     this.camera.near = Math.max(0.1, dist * 0.01);
     this.camera.far = dist * 100;
+    // Depth-cueing fog: starts at 60% of the view distance, fully fades at the far plane.
+    const bg = this.scene.background as Color;
+    this.scene.fog = new Fog(bg ?? 0x0b0d10, dist * 0.6, dist * 3.0);
     this.viewHalfHeight = radius + 3;
     if (this.camera === this.orthoCamera) this.updateOrthoFrustum();
     this.camera.updateProjectionMatrix();
@@ -237,10 +245,12 @@ export class Viewer {
     geometry.setAttribute("normal", new BufferAttribute(normals, 3));
     geometry.setAttribute("color", new BufferAttribute(colors, 3));
     geometry.setIndex(new Uint32BufferAttribute(indices, 1));
-    const material = new MeshStandardMaterial({
+    const material = new MeshPhysicalMaterial({
       vertexColors: true,
-      roughness: 0.5,
+      roughness: 0.35,
       metalness: 0.0,
+      clearcoat: 0.15,
+      clearcoatRoughness: 0.4,
       side: DoubleSide,
     });
     this.disposables.push(geometry, material);
@@ -253,7 +263,7 @@ export class Viewer {
     radii: Float32Array,
     colors: Float32Array,
   ): InstancedMesh {
-    const material = new MeshStandardMaterial({ roughness: 0.45, metalness: 0.0 });
+    const material = new MeshPhysicalMaterial({ roughness: 0.3, metalness: 0.0, clearcoat: 0.2, clearcoatRoughness: 0.3 });
     const mesh = new InstancedMesh(UNIT_SPHERE, material, count);
     const dummy = new Object3D();
     const color = new Color();
@@ -272,7 +282,7 @@ export class Viewer {
 
   private instancedCylinders(group: Extract<DecodedGroup, { primitive: "cylinders" }>): InstancedMesh {
     const { count, starts, ends, radii, colors } = group;
-    const material = new MeshStandardMaterial({ roughness: 0.45, metalness: 0.0 });
+    const material = new MeshPhysicalMaterial({ roughness: 0.3, metalness: 0.0, clearcoat: 0.2, clearcoatRoughness: 0.3 });
     const mesh = new InstancedMesh(UNIT_CYLINDER, material, count);
     const color = new Color();
     const start = new Vector3();
