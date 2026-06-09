@@ -1,9 +1,8 @@
 """Build script for Cython extensions (used by setuptools)."""
 
+import numpy as np
 from Cython.Build import cythonize
 from setuptools import Extension
-
-import numpy as np
 
 
 def build(setup_kwargs: dict) -> None:  # type: ignore[type-arg]

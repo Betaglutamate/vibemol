@@ -32,7 +32,8 @@ from .sequence import needleman_wunsch
 from .superpose import _pca_frame, _representative_atoms
 
 try:
-    from ._nwdp_fast import nwdp as _nwdp_c, score_matrix as _score_matrix_c
+    from ._nwdp_fast import nwdp as _nwdp_c  # noqa: I001
+    from ._nwdp_fast import score_matrix as _score_matrix_c
 except ImportError:
     _nwdp_c = None
     _score_matrix_c = None
@@ -352,8 +353,8 @@ def tm_align(
 
     best: tuple[np.ndarray, np.ndarray, float, float, float, int] | None = None
     best_score = -1.0
-    for mc_id, m_xyz, m_tok in mob_traces:
-        for tc_id, t_xyz, t_tok in tgt_traces:
+    for _mc_id, m_xyz, m_tok in mob_traces:
+        for _tc_id, t_xyz, t_tok in tgt_traces:
             try:
                 result = _align_chain_pair(m_xyz, t_xyz, m_tok, t_tok)
             except ValueError:
